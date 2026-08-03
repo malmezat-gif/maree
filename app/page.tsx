@@ -2,28 +2,62 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDayCycle } from "./day-cycle";
+import { ShomTideWidget, type ShomPortId } from "./shom-tide-widget";
 
 type TidePoint = {
   minutes: number;
   height: number;
   kind: "Pleine mer" | "Basse mer";
+  coefficient: number | null;
 };
 
 type ForecastDay = {
   date: Date;
-  coefficient: number;
+  coefficients: number[];
   tides: TidePoint[];
 };
 
 type Port = {
-  id: string;
+  id: ShomPortId;
   name: string;
   area: string;
-  coefficient: number;
+  demoCoefficient: number;
   timeShift: number;
   heightFactor: number;
   heightOffset: number;
 };
+
+type TideApiExtremum = {
+  date: string;
+  time: string;
+  type: "high" | "low";
+  heightM: number;
+  coefficient: number | null;
+};
+
+type TideApiLevel = {
+  time: string;
+  heightM: number;
+};
+
+type TidesPayload = {
+  source: {
+    id: string;
+    attribution: string;
+    license: string;
+    official: false;
+    navigation: false;
+  };
+  port: { id: ShomPortId; name: string; siteId: string };
+  timezone: "Europe/Paris";
+  period: { start: string; endInclusive: string; days: number };
+  unit: "m";
+  stepMinutes: number;
+  extrema: TideApiExtremum[];
+  levels: TideApiLevel[];
+};
+
+type TideLoadState = "loading" | "live" | "demo";
 
 type ScreenDrag = {
   pointerId: number;
@@ -40,23 +74,23 @@ type ScreenDrag = {
 };
 
 const tideTemplate: TidePoint[] = [
-  { minutes: -126, height: 4.0, kind: "Pleine mer" },
-  { minutes: 208, height: 1.1, kind: "Basse mer" },
-  { minutes: 582, height: 3.9, kind: "Pleine mer" },
-  { minutes: 958, height: 1.3, kind: "Basse mer" },
-  { minutes: 1334, height: 4.1, kind: "Pleine mer" },
-  { minutes: 1708, height: 1.2, kind: "Basse mer" },
+  { minutes: -126, height: 4.0, kind: "Pleine mer", coefficient: 78 },
+  { minutes: 208, height: 1.1, kind: "Basse mer", coefficient: null },
+  { minutes: 582, height: 3.9, kind: "Pleine mer", coefficient: 78 },
+  { minutes: 958, height: 1.3, kind: "Basse mer", coefficient: null },
+  { minutes: 1334, height: 4.1, kind: "Pleine mer", coefficient: 77 },
+  { minutes: 1708, height: 1.2, kind: "Basse mer", coefficient: null },
 ];
 
 const ports: Port[] = [
-  { id: "biarritz", name: "Biarritz", area: "Côte basque", coefficient: 78, timeShift: 0, heightFactor: 1, heightOffset: 0 },
-  { id: "saint-jean-de-luz", name: "Saint-Jean-de-Luz", area: "Côte basque", coefficient: 77, timeShift: -18, heightFactor: 0.96, heightOffset: -0.04 },
-  { id: "capbreton", name: "Capbreton", area: "Landes", coefficient: 76, timeShift: 14, heightFactor: 0.92, heightOffset: -0.04 },
-  { id: "arcachon", name: "Arcachon", area: "Bassin d’Arcachon", coefficient: 72, timeShift: 42, heightFactor: 0.82, heightOffset: -0.12 },
-  { id: "la-rochelle", name: "La Rochelle", area: "Charente-Maritime", coefficient: 82, timeShift: 68, heightFactor: 1.15, heightOffset: 0.02 },
-  { id: "les-sables", name: "Les Sables-d’Olonne", area: "Vendée", coefficient: 80, timeShift: 54, heightFactor: 1.08, heightOffset: 0 },
-  { id: "brest", name: "Brest", area: "Finistère", coefficient: 93, timeShift: 92, heightFactor: 1.38, heightOffset: 0.12 },
-  { id: "saint-malo", name: "Saint-Malo", area: "Ille-et-Vilaine", coefficient: 104, timeShift: 138, heightFactor: 1.68, heightOffset: 0.18 },
+  { id: "biarritz", name: "Biarritz", area: "Côte basque", demoCoefficient: 78, timeShift: 0, heightFactor: 1, heightOffset: 0 },
+  { id: "saint-jean-de-luz", name: "Saint-Jean-de-Luz", area: "Côte basque", demoCoefficient: 77, timeShift: -18, heightFactor: 0.96, heightOffset: -0.04 },
+  { id: "capbreton", name: "Capbreton", area: "Landes", demoCoefficient: 76, timeShift: 14, heightFactor: 0.92, heightOffset: -0.04 },
+  { id: "arcachon", name: "Arcachon", area: "Bassin d’Arcachon", demoCoefficient: 72, timeShift: 42, heightFactor: 0.82, heightOffset: -0.12 },
+  { id: "la-rochelle", name: "La Rochelle", area: "Charente-Maritime", demoCoefficient: 82, timeShift: 68, heightFactor: 1.15, heightOffset: 0.02 },
+  { id: "les-sables", name: "Les Sables-d’Olonne", area: "Vendée", demoCoefficient: 80, timeShift: 54, heightFactor: 1.08, heightOffset: 0 },
+  { id: "brest", name: "Brest", area: "Finistère", demoCoefficient: 93, timeShift: 92, heightFactor: 1.38, heightOffset: 0.12 },
+  { id: "saint-malo", name: "Saint-Malo", area: "Ille-et-Vilaine", demoCoefficient: 104, timeShift: 138, heightFactor: 1.68, heightOffset: 0.18 },
 ];
 
 const coefficientDeltas = [0, -4, -10, -17, -24, -30, -35];
@@ -67,11 +101,15 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
   return <span className={`ui-icon ui-icon-${name} ${className}`.trim()} aria-hidden="true" />;
 }
 
-function buildTidePoints(port: Port): TidePoint[] {
+function buildDemoTidePoints(port: Port): TidePoint[] {
   const core = tideTemplate.map((point) => ({
     ...point,
     minutes: point.minutes + port.timeShift,
     height: Number(Math.max(0.4, point.height * port.heightFactor + port.heightOffset).toFixed(1)),
+    coefficient:
+      point.kind === "Pleine mer"
+        ? Math.max(20, Math.min(120, port.demoCoefficient + (point.coefficient ?? 78) - 78))
+        : null,
   }));
   const first = core[0];
   const second = core[1];
@@ -93,7 +131,7 @@ function buildTidePoints(port: Port): TidePoint[] {
   ];
 }
 
-function buildForecast(startDate: Date, port: Port, visibleTides: TidePoint[]): ForecastDay[] {
+function buildDemoForecast(startDate: Date, port: Port, visibleTides: TidePoint[]): ForecastDay[] {
   const start = new Date(startDate);
 
   return coefficientDeltas.map((delta, index) => {
@@ -102,11 +140,15 @@ function buildForecast(startDate: Date, port: Port, visibleTides: TidePoint[]): 
     const shift = index * 48;
     return {
       date,
-      coefficient: Math.max(20, Math.min(120, port.coefficient + delta)),
+      coefficients: [Math.max(20, Math.min(120, port.demoCoefficient + delta))],
       tides: visibleTides
         .map((point) => ({
           ...point,
           minutes: (point.minutes + shift) % 1440,
+          coefficient:
+            point.kind === "Pleine mer"
+              ? Math.max(20, Math.min(120, port.demoCoefficient + delta))
+              : null,
           height: Number(
             Math.max(
               0.4,
@@ -120,6 +162,84 @@ function buildForecast(startDate: Date, port: Port, visibleTides: TidePoint[]): 
         .sort((a, b) => a.minutes - b.minutes),
     };
   });
+}
+
+function localDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function localDateFromKey(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
+
+function minutesFromTime(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function minutesFromLevelTime(value: string) {
+  const match = /T(\d{2}):(\d{2})/.exec(value);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+function coefficientsLabel(coefficients: number[]) {
+  const unique = [...new Set(coefficients)].sort((left, right) => left - right);
+  if (!unique.length) return "—";
+  if (unique.length === 1) return String(unique[0]);
+  return `${unique[0]}–${unique[unique.length - 1]}`;
+}
+
+function buildLiveForecast(payload: TidesPayload): ForecastDay[] {
+  return Array.from({ length: payload.period.days }, (_, index) => {
+    const date = localDateFromKey(payload.period.start);
+    date.setDate(date.getDate() + index);
+    const key = localDateKey(date);
+    const extrema = payload.extrema.filter((point) => point.date === key);
+    return {
+      date,
+      coefficients: extrema
+        .filter((point) => point.type === "high" && point.coefficient !== null)
+        .map((point) => point.coefficient as number),
+      tides: extrema.map((point) => ({
+        minutes: minutesFromTime(point.time),
+        height: point.heightM,
+        kind: point.type === "high" ? "Pleine mer" : "Basse mer",
+        coefficient: point.type === "high" ? point.coefficient : null,
+      })),
+    };
+  });
+}
+
+function getLiveTideAt(
+  minutes: number,
+  levels: TideApiLevel[],
+  events: TidePoint[],
+) {
+  const samples = levels
+    .map((sample) => ({ minutes: minutesFromLevelTime(sample.time), height: sample.heightM }))
+    .filter((sample): sample is { minutes: number; height: number } => sample.minutes !== null)
+    .sort((left, right) => left.minutes - right.minutes);
+  if (samples.length < 2) return null;
+
+  const nextSampleIndex = samples.findIndex((sample) => sample.minutes >= minutes);
+  const endIndex = nextSampleIndex <= 0 ? 1 : nextSampleIndex === -1 ? samples.length - 1 : nextSampleIndex;
+  const start = samples[endIndex - 1];
+  const end = samples[endIndex];
+  const progress = Math.max(0, Math.min(1, (minutes - start.minutes) / Math.max(1, end.minutes - start.minutes)));
+  const height = start.height + (end.height - start.height) * progress;
+  const next = events.find((point) => point.minutes >= minutes) ?? events[events.length - 1];
+  if (!next) return null;
+
+  return {
+    height,
+    rising: end.height >= start.height,
+    next,
+    minutesUntilNext: Math.max(0, next.minutes - minutes),
+  };
 }
 
 function normalizeSearch(value: string) {
@@ -179,15 +299,22 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isUnderwater, setIsUnderwater] = useState(false);
   const [sceneReady, setSceneReady] = useState(false);
-  const [selectedDay, setSelectedDay] = useState(1);
-  const [selectedPortId, setSelectedPortId] = useState("biarritz");
+  const [selectedDay, setSelectedDay] = useState(0);
+  const [selectedPortId, setSelectedPortId] = useState<ShomPortId>("biarritz");
   const [portQuery, setPortQuery] = useState("");
   const [portAnnouncement, setPortAnnouncement] = useState("");
+  const [tidesPayload, setTidesPayload] = useState<TidesPayload | null>(null);
+  const [tideLoadState, setTideLoadState] = useState<TideLoadState>("loading");
+  const [tideAnnouncement, setTideAnnouncement] = useState(
+    "Connexion à la source de marée…",
+  );
   const portDialogRef = useRef<HTMLDialogElement>(null);
+  const shomDialogRef = useRef<HTMLDialogElement>(null);
   const portSearchRef = useRef<HTMLInputElement>(null);
   const locationButtonRef = useRef<HTMLButtonElement>(null);
   const forecastButtonRef = useRef<HTMLButtonElement>(null);
   const backButtonRef = useRef<HTMLButtonElement>(null);
+  const lastShomTriggerRef = useRef<HTMLButtonElement | null>(null);
   const phoneRef = useRef<HTMLElement>(null);
   const screenStackRef = useRef<HTMLDivElement>(null);
   const waterRef = useRef<HTMLDivElement>(null);
@@ -199,15 +326,44 @@ export default function Home() {
     () => ports.find((port) => port.id === selectedPortId) ?? ports[0],
     [selectedPortId],
   );
-  const tidePoints = useMemo(() => buildTidePoints(selectedPort), [selectedPort]);
-  const visibleTides = useMemo(
-    () => tidePoints.filter((point) => point.minutes >= 0 && point.minutes < 1440),
-    [tidePoints],
+  const currentDateKey = localDateKey(currentDate);
+  const demoTidePoints = useMemo(
+    () => buildDemoTidePoints(selectedPort),
+    [selectedPort],
   );
-  const forecast = useMemo(
-    () => buildForecast(currentDate, selectedPort, visibleTides),
-    [currentDate, selectedPort, visibleTides],
+  const demoVisibleTides = useMemo(
+    () => demoTidePoints.filter((point) => point.minutes >= 0 && point.minutes < 1440),
+    [demoTidePoints],
   );
+  const demoForecast = useMemo(
+    () => buildDemoForecast(currentDate, selectedPort, demoVisibleTides),
+    [currentDate, selectedPort, demoVisibleTides],
+  );
+  const liveForecast = useMemo(
+    () => (tidesPayload ? buildLiveForecast(tidesPayload) : null),
+    [tidesPayload],
+  );
+  const hasLiveData = tideLoadState === "live" && liveForecast !== null;
+  const forecast = hasLiveData ? liveForecast : demoForecast;
+  const visibleTides = hasLiveData && forecast[0]?.tides.length
+    ? forecast[0].tides
+    : demoVisibleTides;
+  const liveLevelsToday = useMemo(
+    () =>
+      hasLiveData
+        ? (tidesPayload?.levels.filter((point) => point.time.slice(0, 10) === currentDateKey) ?? [])
+        : [],
+    [currentDateKey, hasLiveData, tidesPayload],
+  );
+  const eventTimeline = useMemo(() => {
+    if (!hasLiveData) return demoTidePoints;
+    const todayEvents = forecast[0]?.tides ?? [];
+    const tomorrowEvents = (forecast[1]?.tides ?? []).map((point) => ({
+      ...point,
+      minutes: point.minutes + 1440,
+    }));
+    return [...todayEvents, ...tomorrowEvents];
+  }, [demoTidePoints, forecast, hasLiveData]);
   const filteredPorts = useMemo(() => {
     const query = normalizeSearch(portQuery);
     if (!query) return ports;
@@ -232,14 +388,70 @@ export default function Home() {
     const frame = window.requestAnimationFrame(() => {
       setMinutes(currentMinutes);
       setCurrentDate(now);
-      if (savedPort && ports.some((port) => port.id === savedPort)) {
-        setSelectedPortId(savedPort);
+      const savedPortConfig = ports.find((port) => port.id === savedPort);
+      if (savedPortConfig) {
+        setSelectedPortId(savedPortConfig.id);
       }
       setSceneReady(true);
     });
 
     return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadTides() {
+      try {
+        const response = await fetch(
+          `/api/tides?port=${encodeURIComponent(selectedPortId)}&start=${currentDateKey}&days=7`,
+          { signal: controller.signal, headers: { accept: "application/json" } },
+        );
+        const result = await response.json();
+        if (!response.ok) throw new Error(result?.error?.code ?? "upstream_unavailable");
+        const payload = result as TidesPayload;
+        if (!payload.extrema.length || payload.levels.length < 2) {
+          throw new Error("empty_payload");
+        }
+        setTidesPayload(payload);
+        setTideLoadState("live");
+        setTideAnnouncement(
+          `Données de marée chargées pour ${selectedPort.name}, fournies par api-maree.fr.`,
+        );
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setTidesPayload(null);
+        setTideLoadState("demo");
+        setTideAnnouncement(
+          error instanceof Error && error.message === "service_unconfigured"
+            ? "Animation en mode exemple. Les horaires officiels SHOM sont disponibles."
+            : "Source animée momentanément indisponible. Les horaires officiels SHOM restent disponibles.",
+        );
+      }
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      setTidesPayload(null);
+      setSelectedDay(0);
+
+      if (selectedPortId === "capbreton") {
+        setTideLoadState("demo");
+        setTideAnnouncement(
+          "Animation en mode exemple pour Capbreton. Les horaires officiels SHOM sont disponibles.",
+        );
+        return;
+      }
+
+      setTideLoadState("loading");
+      setTideAnnouncement(`Connexion aux données de marée pour ${selectedPort.name}…`);
+      void loadTides();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      controller.abort();
+    };
+  }, [currentDateKey, selectedPort.name, selectedPortId]);
 
   useEffect(() => {
     if (!isPlaying) return;
@@ -258,12 +470,20 @@ export default function Home() {
     [],
   );
 
-  const tide = useMemo(() => getTideAt(minutes, tidePoints), [minutes, tidePoints]);
+  const tide = useMemo(
+    () =>
+      (hasLiveData
+        ? getLiveTideAt(minutes, liveLevelsToday, eventTimeline)
+        : null) ?? getTideAt(minutes, demoTidePoints),
+    [demoTidePoints, eventTimeline, hasLiveData, liveLevelsToday, minutes],
+  );
   const dayCycle = useMemo(() => getDayCycle(minutes), [minutes]);
   const tideRange = useMemo(() => {
-    const heights = tidePoints.map((point) => point.height);
+    const heights = hasLiveData && liveLevelsToday.length
+      ? liveLevelsToday.map((point) => point.heightM)
+      : demoTidePoints.map((point) => point.height);
     return { min: Math.min(...heights), max: Math.max(...heights) };
-  }, [tidePoints]);
+  }, [demoTidePoints, hasLiveData, liveLevelsToday]);
   const rangeSpan = Math.max(0.5, tideRange.max - tideRange.min);
   const waterLevel = 20 + ((tide.height - tideRange.min) / rangeSpan) * 58;
   const waterShift = ((84 - waterLevel) / 84) * 100;
@@ -276,7 +496,19 @@ export default function Home() {
     day: "numeric",
     month: "long",
   }).format(currentDate);
-  const activeForecast = forecast[selectedDay];
+  const activeForecast = forecast[selectedDay] ?? forecast[0];
+  const coefficientEvent = eventTimeline.find(
+    (point) =>
+      point.kind === "Pleine mer" &&
+      point.coefficient !== null &&
+      point.minutes >= minutes,
+  );
+  const currentCoefficient = coefficientEvent?.coefficient ?? null;
+  const sourceLabel = tideLoadState === "live"
+    ? "api-maree.fr"
+    : tideLoadState === "loading"
+      ? "Connexion…"
+      : "Données d’exemple";
   const atmosphereStyle = {
     "--daylight": dayCycle.daylight.toFixed(3),
     "--night": dayCycle.night.toFixed(3),
@@ -325,6 +557,16 @@ export default function Home() {
 
   function closePortPicker() {
     if (portDialogRef.current?.open) portDialogRef.current.close();
+  }
+
+  function openShomWidget(trigger: HTMLButtonElement) {
+    setIsPlaying(false);
+    lastShomTriggerRef.current = trigger;
+    shomDialogRef.current?.showModal();
+  }
+
+  function closeShomWidget() {
+    if (shomDialogRef.current?.open) shomDialogRef.current.close();
   }
 
   function choosePort(port: Port) {
@@ -382,7 +624,12 @@ export default function Home() {
   }
 
   function handleScreenSwipeStart(event: React.PointerEvent<HTMLDivElement>) {
-    if (event.pointerType !== "touch" || !event.isPrimary || portDialogRef.current?.open) return;
+    if (
+      event.pointerType !== "touch" ||
+      !event.isPrimary ||
+      portDialogRef.current?.open ||
+      shomDialogRef.current?.open
+    ) return;
 
     const target = event.target as HTMLElement;
     if (
@@ -501,7 +748,7 @@ export default function Home() {
 
   return (
     <main className="app-stage">
-      <section ref={phoneRef} className="phone" aria-label="Prototype de l’application Marée">
+      <section ref={phoneRef} className="phone" aria-label="Application Marée">
         <div
           ref={screenStackRef}
           className={isUnderwater ? "screen-stack is-underwater" : "screen-stack"}
@@ -577,9 +824,19 @@ export default function Home() {
                     <Icon name="chevron" />
                   </button>
                 </div>
-                <div className="coefficient" aria-label={`Coefficient de marée ${selectedPort.coefficient}`}>
+                <div
+                  className="coefficient"
+                  aria-label={
+                    currentCoefficient === null
+                      ? "Coefficient de la prochaine pleine mer indisponible"
+                      : `Coefficient ${hasLiveData ? "estimé" : "d’exemple"} de la prochaine pleine mer : ${currentCoefficient}`
+                  }
+                >
                   <span>Coef.</span>
-                  <strong>{selectedPort.coefficient}</strong>
+                  <strong className="coefficient-value">{currentCoefficient ?? "—"}</strong>
+                  <small className="coefficient-caption">
+                    {hasLiveData ? "estimé" : "exemple"}
+                  </small>
                 </div>
               </header>
 
@@ -610,10 +867,10 @@ export default function Home() {
                 ))}
               </div>
 
-              <section className="controls" aria-label="Simuler la marée au fil de la journée">
+              <section className="controls" aria-label="Explorer la marée au fil de la journée">
                 <div className="time-row">
                   <div>
-                    <p>Heure simulée</p>
+                    <p>Heure explorée</p>
                     <strong>{formatTime(minutes)}</strong>
                   </div>
                   <button
@@ -669,7 +926,7 @@ export default function Home() {
                         type="button"
                         onClick={() => jumpToTide(point)}
                         aria-pressed={isActive}
-                        aria-label={`Aller à ${point.kind.toLowerCase()} à ${formatTime(point.minutes)}, hauteur ${point.height.toFixed(1)} mètres`}
+                        aria-label={`Aller à ${point.kind.toLowerCase()} à ${formatTime(point.minutes)}, hauteur ${point.height.toFixed(1)} mètres${point.coefficient === null ? "" : `, coefficient ${point.coefficient}`}`}
                       >
                         <span className={point.kind === "Pleine mer" ? "event-icon high" : "event-icon low"}>
                           <Icon name={point.kind === "Pleine mer" ? "arrow-up" : "arrow-down"} />
@@ -678,7 +935,10 @@ export default function Home() {
                           <span>{point.kind}</span>
                           <strong>{formatTime(point.minutes)}</strong>
                         </span>
-                        <span className="event-height">{point.height.toFixed(1).replace(".", ",")} m</span>
+                        <span className="event-height">
+                          {point.height.toFixed(1).replace(".", ",")} m
+                          {point.coefficient === null ? null : <small> · {point.coefficient}</small>}
+                        </span>
                       </button>
                     );
                   })}
@@ -693,7 +953,23 @@ export default function Home() {
                   <span>Voir les prochains jours</span>
                   <span className="dive-arrow" aria-hidden="true"><Icon name="arrow-down" /></span>
                 </button>
-                <p className="demo-note">Simulation visuelle · données d’exemple</p>
+                <div className="data-provenance">
+                  <span
+                    className={`source-badge ${hasLiveData ? "source-badge--live" : "source-badge--demo"}`}
+                  >
+                    {sourceLabel}
+                  </span>
+                  <button
+                    className="source-badge source-badge--official"
+                    type="button"
+                    data-no-screen-swipe
+                    aria-haspopup="dialog"
+                    aria-controls="shom-tide-dialog"
+                    onClick={(event) => openShomWidget(event.currentTarget)}
+                  >
+                    Horaires officiels SHOM
+                  </button>
+                </div>
               </section>
             </div>
           </section>
@@ -751,11 +1027,11 @@ export default function Home() {
                   onClick={() => setSelectedDay(index)}
                   aria-pressed={selectedDay === index}
                   aria-current={index === 0 ? "date" : undefined}
-                  aria-label={`${new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" }).format(day.date)}, coefficient ${day.coefficient}`}
+                  aria-label={`${new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" }).format(day.date)}, coefficient ${hasLiveData ? "estimé" : "d’exemple"} ${coefficientsLabel(day.coefficients)}`}
                 >
                   <span>{index === 0 ? "Auj." : new Intl.DateTimeFormat("fr-FR", { weekday: "short" }).format(day.date).replace(".", "")}</span>
                   <strong>{day.date.getDate()}</strong>
-                  <small>{day.coefficient}</small>
+                  <small>{coefficientsLabel(day.coefficients)}</small>
                 </button>
               ))}
             </div>
@@ -768,8 +1044,8 @@ export default function Home() {
                   <h4>{new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(activeForecast.date)}</h4>
                 </div>
                 <div className="forecast-coef">
-                  <span>Coefficient</span>
-                  <strong>{activeForecast.coefficient}</strong>
+                  <span>Coef. {hasLiveData ? "estimé" : "exemple"}</span>
+                  <strong>{coefficientsLabel(activeForecast.coefficients)}</strong>
                 </div>
               </div>
 
@@ -783,20 +1059,82 @@ export default function Home() {
                       <p>{point.kind}</p>
                       <strong>{formatTime(point.minutes)}</strong>
                     </div>
-                    <span>{point.height.toFixed(1).replace(".", ",")} m</span>
+                    <span>
+                      {point.height.toFixed(1).replace(".", ",")} m
+                      {point.coefficient === null ? null : <small> · coef. {point.coefficient}</small>}
+                    </span>
                   </div>
                 ))}
               </div>
               </div>
             </section>
 
+            <button
+              className="official-shom-panel"
+              type="button"
+              data-no-screen-swipe
+              aria-haspopup="dialog"
+              aria-controls="shom-tide-dialog"
+              onClick={(event) => openShomWidget(event.currentTarget)}
+            >
+              <span className="official-shom-mark">SHOM</span>
+              <span className="official-shom-copy">
+                <strong>Horaires officiels SHOM</strong>
+                <small>Port de référence pour {selectedPort.name}</small>
+              </span>
+              <span className="official-shom-chevron" aria-hidden="true">›</span>
+            </button>
+
             <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-              Prévisions pour {new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" }).format(activeForecast.date)}, coefficient {activeForecast.coefficient}
+              Prévisions pour {new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" }).format(activeForecast.date)}, coefficient {coefficientsLabel(activeForecast.coefficients)}
             </p>
 
-            <p className="underwater-note">Coefficients et horaires de démonstration</p>
+            <p className="underwater-note">
+              {hasLiveData ? "Données api-maree.fr · " : "Animation avec données d’exemple · "}
+              Prévisions indicatives — non destinées à la navigation
+            </p>
           </section>
         </div>
+
+        <dialog
+          ref={shomDialogRef}
+          id="shom-tide-dialog"
+          className="shom-dialog"
+          aria-labelledby="shom-dialog-title"
+          onClose={() => lastShomTriggerRef.current?.focus()}
+          onClick={(event) => {
+            if (event.target !== event.currentTarget) return;
+            const bounds = event.currentTarget.getBoundingClientRect();
+            const isInside =
+              event.clientX >= bounds.left &&
+              event.clientX <= bounds.right &&
+              event.clientY >= bounds.top &&
+              event.clientY <= bounds.bottom;
+            if (!isInside) closeShomWidget();
+          }}
+        >
+          <div className="shom-sheet">
+            <header className="shom-dialog-header">
+              <div>
+                <p>Source officielle</p>
+                <h2 id="shom-dialog-title">Marées à {selectedPort.name}</h2>
+              </div>
+              <button className="shom-close" type="button" onClick={closeShomWidget}>
+                Fermer
+              </button>
+            </header>
+            <div className="shom-dialog-body">
+              <ShomTideWidget portId={selectedPort.id} />
+              {hasLiveData ? (
+                <p className="api-attribution">
+                  Données de marée fournies par api-maree.fr, calculées à partir de composantes
+                  harmoniques Ifremer / PREVIMER, sous licence Creative Commons Attribution 4.0
+                  International. Données indicatives, impropres à la navigation.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </dialog>
 
         <dialog
           ref={portDialogRef}
@@ -889,7 +1227,7 @@ export default function Home() {
                           <small>{port.area}</small>
                         </span>
                         <span className="port-row-meta">
-                          <small>Coef. {port.coefficient}</small>
+                          <small>SHOM officiel</small>
                           {isSelected ? (
                             <span className="port-check" aria-hidden="true">
                               <Icon name="check" />
@@ -922,12 +1260,17 @@ export default function Home() {
               </div>
             )}
 
-            <p className="port-demo-note">Ports et marées simulés pour ce prototype</p>
+            <p className="port-demo-note">
+              Horaires officiels consultables pour chaque port · animation indicative selon disponibilité
+            </p>
           </div>
         </dialog>
 
         <p className="sr-only" aria-live="polite">
           {portAnnouncement}
+        </p>
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {tideAnnouncement}
         </p>
       </section>
     </main>

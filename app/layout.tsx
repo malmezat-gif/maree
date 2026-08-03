@@ -5,7 +5,7 @@ import { PwaRegistration } from "./pwa-registration";
 
 const title = "Marée — La mer au fil du temps";
 const description =
-  "Explorez les marées du jour avec une simulation visuelle et interactive.";
+  "Consultez les horaires et coefficients de marée, puis explorez la hauteur de l’eau au fil de la journée.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();

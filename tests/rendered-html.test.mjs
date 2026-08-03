@@ -34,8 +34,8 @@ test("server-renders the Marée experience", async () => {
   assert.match(html, /rel="manifest" href="http:\/\/localhost(?::3000)?\/manifest\.webmanifest"/);
   assert.match(html, /rel="apple-touch-icon"[^>]*href="http:\/\/localhost(?::3000)?\/apple-touch-icon\.png"/);
   assert.match(html, /property="og:image" content="http:\/\/localhost(?::3000)?\/og\.png"/);
-  assert.match(html, /aria-label="Prototype de l’application Marée"/);
-  assert.match(html, /Heure simulée/);
+  assert.match(html, /aria-label="Application Marée"/);
+  assert.match(html, /Heure explorée/);
   assert.match(html, /id="time-slider"[^>]*type="range"/);
   assert.match(html, /id="time-slider"[^>]*step="1"/);
   assert.match(html, /aria-valuetext="12:00, journée, hauteur/);
@@ -52,10 +52,12 @@ test("server-renders the Marée experience", async () => {
   assert.match(html, /Voir les prochains jours/);
   assert.match(html, /Les marées à venir/);
   assert.match(html, /<dialog[^>]*id="port-picker"/);
+  assert.match(html, /<dialog[^>]*id="shom-tide-dialog"/);
   assert.match(html, /Choisir un port/);
   assert.equal((html.match(/class="port-row /g) ?? []).length, 8);
   assert.match(html, /Saint-Jean-de-Luz/);
-  assert.match(html, /Simulation visuelle · données d’exemple/);
+  assert.match(html, /Horaires officiels SHOM/);
+  assert.match(html, /Prévisions indicatives — non destinées à la navigation/);
   assert.doesNotMatch(html, /react-loading-skeleton|Your site is taking shape/);
 });
 
@@ -87,6 +89,10 @@ test("keeps the mobile experience accessible and self-contained", async () => {
   assert.match(page, /function finishScreenSwipe/);
   assert.match(page, /setPointerCapture\(event\.pointerId\)/);
   assert.match(page, /data-no-screen-swipe/);
+  assert.match(page, /new AbortController\(\)/);
+  assert.match(page, /\/api\/tides\?port=/);
+  assert.match(page, /ShomTideWidget/);
+  assert.match(page, /useState\(0\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /\.ui-icon-arrow-down::before/);
   assert.match(css, /\.ui-icon-arrow-down::after/);
