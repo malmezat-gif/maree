@@ -1127,9 +1127,9 @@ export default function Home() {
               <ShomTideWidget portId={selectedPort.id} />
               {hasLiveData ? (
                 <p className="api-attribution">
-                  Données de marée fournies par api-maree.fr, calculées à partir de composantes
-                  harmoniques Ifremer / PREVIMER, sous licence Creative Commons Attribution 4.0
-                  International. Données indicatives, impropres à la navigation.
+                  Données de marée fournies par api-maree.fr sous licence CC BY, calculées à partir
+                  de composantes harmoniques Ifremer / PREVIMER, elles-mêmes sous licence CC BY.
+                  Données indicatives, impropres à la navigation.
                 </p>
               ) : null}
             </div>
