@@ -36,6 +36,7 @@ test("server-renders the Marée experience", async () => {
   assert.match(html, /property="og:image" content="http:\/\/localhost(?::3000)?\/og\.png"/);
   assert.match(html, /aria-label="Application Marée"/);
   assert.match(html, /Heure explorée/);
+  assert.match(html, /En direct/);
   assert.match(html, /id="time-slider"[^>]*type="range"/);
   assert.match(html, /id="time-slider"[^>]*step="1"/);
   assert.match(html, /aria-valuetext="12:00, journée, hauteur/);
@@ -92,12 +93,16 @@ test("keeps the mobile experience accessible and self-contained", async () => {
   assert.match(page, /new AbortController\(\)/);
   assert.match(page, /\/api\/tides\?port=/);
   assert.match(page, /ShomTideWidget/);
+  assert.match(page, /function returnToLive\(\)/);
+  assert.match(page, /setIsFollowingLive\(false\)/);
   assert.match(page, /useState\(0\)/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /\.ui-icon-arrow-down::before/);
   assert.match(css, /\.ui-icon-arrow-down::after/);
   assert.match(css, /@keyframes wave-disturb-front/);
   assert.match(css, /@keyframes boat-toss/);
+  assert.match(css, /@keyframes live-pulse/);
+  assert.match(css, /\.live-button/);
   assert.match(css, /@keyframes seabed-arrive/);
   assert.match(css, /touch-action:\s*pan-x pinch-zoom/);
   assert.match(css, /@keyframes underwater-content-in/);

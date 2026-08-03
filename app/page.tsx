@@ -296,6 +296,8 @@ export default function Home() {
   const [currentDate, setCurrentDate] = useState(
     () => new Date(2026, 7, 3, 12, 0, 0, 0),
   );
+  const [liveMinutes, setLiveMinutes] = useState(12 * 60);
+  const [isFollowingLive, setIsFollowingLive] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isUnderwater, setIsUnderwater] = useState(false);
   const [sceneReady, setSceneReady] = useState(false);
@@ -373,10 +375,6 @@ export default function Home() {
   }, [portQuery]);
 
   useEffect(() => {
-    const now = new Date();
-    const currentMinutes =
-      (now.getHours() * 60 + Math.round(now.getMinutes() / 5) * 5) % 1440;
-    now.setHours(12, 0, 0, 0);
     let savedPort: string | null = null;
 
     try {
@@ -386,8 +384,6 @@ export default function Home() {
     }
 
     const frame = window.requestAnimationFrame(() => {
-      setMinutes(currentMinutes);
-      setCurrentDate(now);
       const savedPortConfig = ports.find((port) => port.id === savedPort);
       if (savedPortConfig) {
         setSelectedPortId(savedPortConfig.id);
@@ -397,6 +393,24 @@ export default function Home() {
 
     return () => window.cancelAnimationFrame(frame);
   }, []);
+
+  useEffect(() => {
+    function syncClock() {
+      const now = new Date();
+      const currentMinutes = (now.getHours() * 60 + now.getMinutes()) % 1440;
+      setLiveMinutes(currentMinutes);
+      if (isFollowingLive) setMinutes(currentMinutes);
+      now.setHours(12, 0, 0, 0);
+      setCurrentDate(now);
+    }
+
+    const frame = window.requestAnimationFrame(syncClock);
+    const timer = window.setInterval(syncClock, 30_000);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearInterval(timer);
+    };
+  }, [isFollowingLive]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -541,8 +555,23 @@ export default function Home() {
 
   function jumpToTide(point: TidePoint) {
     setIsPlaying(false);
+    setIsFollowingLive(false);
     setMinutes(point.minutes);
     agitateWater();
+  }
+
+  function returnToLive() {
+    const now = new Date();
+    const currentMinutes = (now.getHours() * 60 + now.getMinutes()) % 1440;
+    const difference = Math.abs(currentMinutes - minutes);
+    setIsPlaying(false);
+    setIsFollowingLive(true);
+    setLiveMinutes(currentMinutes);
+    setMinutes(currentMinutes);
+    setSelectedDay(0);
+    now.setHours(12, 0, 0, 0);
+    setCurrentDate(now);
+    if (Math.min(difference, 1440 - difference) >= 30) agitateWater();
   }
 
   function openPortPicker(focusSearch = false) {
@@ -873,15 +902,34 @@ export default function Home() {
                     <p>Heure explorée</p>
                     <strong>{formatTime(minutes)}</strong>
                   </div>
-                  <button
-                    className={`play ${isPlaying ? "is-playing" : ""}`}
-                    type="button"
-                    onClick={() => setIsPlaying((playing) => !playing)}
-                    aria-label="Lecture automatique de la journée"
-                    aria-pressed={isPlaying}
-                  >
-                    <Icon key={isPlaying ? "pause" : "play"} name={isPlaying ? "pause" : "play"} />
-                  </button>
+                  <div className="time-actions">
+                    <button
+                      className={`live-button ${isFollowingLive ? "is-live" : ""}`}
+                      type="button"
+                      onClick={returnToLive}
+                      aria-label={
+                        isFollowingLive
+                          ? `Heure actuelle, en direct à ${formatTime(liveMinutes)}`
+                          : `Revenir en direct à ${formatTime(liveMinutes)}`
+                      }
+                      aria-pressed={isFollowingLive}
+                    >
+                      <span className="live-dot" aria-hidden="true" />
+                      <span>En direct</span>
+                    </button>
+                    <button
+                      className={`play ${isPlaying ? "is-playing" : ""}`}
+                      type="button"
+                      onClick={() => {
+                        if (!isPlaying) setIsFollowingLive(false);
+                        setIsPlaying((playing) => !playing);
+                      }}
+                      aria-label="Lecture automatique de la journée"
+                      aria-pressed={isPlaying}
+                    >
+                      <Icon key={isPlaying ? "pause" : "play"} name={isPlaying ? "pause" : "play"} />
+                    </button>
+                  </div>
                 </div>
 
                 <label className="sr-only" htmlFor="time-slider">
@@ -906,6 +954,7 @@ export default function Home() {
                   }}
                   onChange={(event) => {
                     setIsPlaying(false);
+                    setIsFollowingLive(false);
                     setMinutes(Number(event.target.value));
                   }}
                   style={{ "--progress": `${(minutes / 1435) * 100}%` } as React.CSSProperties}
