@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { handleTidesRequest } from "../lib/tides-api.ts";
 
 const NOW = new Date("2026-08-03T10:00:00Z");
 const FAKE_KEY = "unit-test-key-not-a-secret";
+
+test("reads the hosted secret from the Cloudflare runtime binding", async () => {
+  const routeSource = await readFile(
+    new URL("../app/api/tides/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(routeSource, /await import\("cloudflare:workers"\)/);
+  assert.match(routeSource, /runtimeEnv\.API_MAREE_KEY/);
+  assert.doesNotMatch(routeSource, /process\.env\.API_MAREE_KEY/);
+});
 
 function request(query) {
   return new Request(`https://maree.example/api/tides?${query}`);
