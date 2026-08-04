@@ -1,15 +1,7 @@
-const SHELL_CACHE = "maree-shell-v1";
-const ASSET_CACHE = "maree-assets-v1";
+const SHELL_CACHE = "maree-shell-v2";
+const ASSET_CACHE = "maree-assets-v2";
 const CACHE_PREFIX = "maree-";
-const SHELL_FILES = [
-  "/",
-  "/offline.html",
-  "/manifest.webmanifest",
-  "/icons/maree-192.png",
-  "/icons/maree-512.png",
-  "/icons/maree-maskable-512.png",
-  "/apple-touch-icon.png",
-];
+const SHELL_FILES = ["/offline.html"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -47,23 +39,25 @@ function canCache(response) {
 
 async function navigationResponse(request) {
   try {
-    const response = await fetch(request);
-    if (canCache(response)) {
-      const cache = await caches.open(SHELL_CACHE);
-      await cache.put("/", response.clone());
-    }
-    return response;
+    return await fetch(request);
   } catch {
-    return (await caches.match("/")) || (await caches.match("/offline.html"));
+    const cache = await caches.open(SHELL_CACHE);
+    return (
+      (await cache.match("/offline.html")) ||
+      new Response("Application hors ligne", {
+        status: 503,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      })
+    );
   }
 }
 
 async function cachedAssetResponse(request) {
-  const cached = await caches.match(request);
+  const cache = await caches.open(ASSET_CACHE);
+  const cached = await cache.match(request);
   if (cached) return cached;
   const response = await fetch(request);
   if (canCache(response)) {
-    const cache = await caches.open(ASSET_CACHE);
     await cache.put(request, response.clone());
   }
   return response;
@@ -88,12 +82,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (
-    url.pathname.startsWith("/assets/") ||
-    url.pathname.startsWith("/icons/") ||
-    url.pathname === "/apple-touch-icon.png" ||
-    url.pathname === "/manifest.webmanifest"
-  ) {
+  if (url.pathname.startsWith("/assets/")) {
     event.respondWith(cachedAssetResponse(request));
   }
 });

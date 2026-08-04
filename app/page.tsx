@@ -307,7 +307,6 @@ export default function Home() {
   const [isFollowingLive, setIsFollowingLive] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isUnderwater, setIsUnderwater] = useState(false);
-  const [sceneReady, setSceneReady] = useState(false);
   const [selectedDay, setSelectedDay] = useState(0);
   const [selectedPortId, setSelectedPortId] = useState<ShomPortId>("biarritz");
   const [portQuery, setPortQuery] = useState("");
@@ -398,7 +397,6 @@ export default function Home() {
       if (savedPortConfig) {
         setSelectedPortId(savedPortConfig.id);
       }
-      setSceneReady(true);
     });
 
     return () => window.cancelAnimationFrame(frame);
@@ -569,6 +567,8 @@ export default function Home() {
 
     const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
     let frame = 0;
+    let lastPaint = 0;
+    const frameInterval = 1000 / 30;
 
     const setCalmPose = () => {
       water.style.setProperty("--wave-front-x", "0%");
@@ -594,6 +594,12 @@ export default function Home() {
         setCalmPose();
         return;
       }
+
+      if (now - lastPaint < frameInterval) {
+        frame = window.requestAnimationFrame(animate);
+        return;
+      }
+      lastPaint = now;
 
       const time = now / 1000;
       const disturbanceAge = disturbanceStartedAtRef.current === null
@@ -650,6 +656,7 @@ export default function Home() {
     const stop = () => {
       if (frame) window.cancelAnimationFrame(frame);
       frame = 0;
+      lastPaint = 0;
       setCalmPose();
     };
     const handleVisibility = () => {
@@ -840,7 +847,6 @@ export default function Home() {
 
     event.currentTarget.style.setProperty("--drag-position", `${startTranslateY}px`);
     event.currentTarget.classList.add("is-dragging");
-    event.currentTarget.setPointerCapture(event.pointerId);
   }
 
   function handleScreenSwipeMove(event: React.PointerEvent<HTMLDivElement>) {
@@ -861,6 +867,9 @@ export default function Home() {
         return;
       }
       drag.axis = "vertical";
+      if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
     }
 
     const phoneHeight = phoneRef.current?.clientHeight ?? event.currentTarget.clientHeight / 2;
@@ -896,7 +905,7 @@ export default function Home() {
       !drag.startedUnderwater &&
       (progress >= 0.28 ||
         projected >= 0.34 ||
-        (drag.startedFromForecastHandle && deltaY <= -56) ||
+        (drag.startedFromForecastHandle && deltaY <= -12) ||
         (distance >= 18 && drag.velocityY <= -0.55));
     const returnedToSurface =
       !cancelled &&
@@ -914,7 +923,13 @@ export default function Home() {
       ? 1
       : Math.round(Math.max(220, Math.min(420, 410 - Math.abs(drag.velocityY) * 150)));
 
-    if (drag.startedFromForecastHandle && distance >= 10) suppressForecastClick();
+    if (
+      drag.startedFromForecastHandle &&
+      distance >= 10 &&
+      nextUnderwater !== drag.startedUnderwater
+    ) {
+      suppressForecastClick();
+    }
 
     screenDragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -941,7 +956,7 @@ export default function Home() {
           onLostPointerCapture={(event) => finishScreenSwipe(event, true)}
         >
           <section
-            className={`surface-screen phase-${dayCycle.phase} ${sceneReady ? "scene-ready" : "scene-pending"}${isPlaying ? " is-playing" : ""}`}
+            className={`surface-screen phase-${dayCycle.phase} scene-ready${isPlaying ? " is-playing" : ""}`}
             style={atmosphereStyle}
             data-tide-scene={tideScene}
             data-tide-direction={tide.rising ? "rising" : "falling"}
@@ -1000,11 +1015,11 @@ export default function Home() {
               <span className="water-spray spray-two" />
               <span className="water-spray spray-three" />
               <div className="boat-25d">
-                <img className="boat-layer boat-shadow-layer" src="/art/boat-shadow.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
-                <img className="boat-layer boat-reflection-layer" src="/art/boat-reflection.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
+                <img className="boat-layer boat-shadow-layer" src="/art/boat-shadow-v2.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
+                <img className="boat-layer boat-reflection-layer" src="/art/boat-reflection-v2.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
                 <div className="boat-body">
-                  <img className="boat-layer boat-sail-layer" src="/art/boat-sail.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
-                  <img className="boat-layer boat-hull-layer" src="/art/boat-hull.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
+                  <img className="boat-layer boat-sail-layer" src="/art/boat-sail-v2.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
+                  <img className="boat-layer boat-hull-layer" src="/art/boat-hull-v2.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
                 </div>
               </div>
               <div className="water-glint" />
@@ -1124,7 +1139,7 @@ export default function Home() {
                     className="time-slider"
                     type="range"
                     min="0"
-                    max="1435"
+                    max="1439"
                     step="1"
                     value={minutes}
                     aria-valuetext={`${formatTime(minutes)}, ${dayCycle.label.toLowerCase()}, hauteur ${tide.height.toFixed(1).replace(".", ",")} mètres, marée ${tide.rising ? "montante" : "descendante"}`}
@@ -1141,7 +1156,7 @@ export default function Home() {
                       setIsFollowingLive(false);
                       setMinutes(Number(event.target.value));
                     }}
-                    style={{ "--progress": `${(minutes / 1435) * 100}%` } as React.CSSProperties}
+                    style={{ "--progress": `${(minutes / 1439) * 100}%` } as React.CSSProperties}
                   />
                   <div className="range-labels" aria-hidden="true">
                     <span>00:00</span>
