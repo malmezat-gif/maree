@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element -- The four transparent boat layers are already optimized WebP assets; Vinext's runtime image optimizer is not available on this worker. */
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDayCycle } from "./day-cycle";
 import { ShomTideWidget, type ShomPortId } from "./shom-tide-widget";
@@ -97,6 +99,10 @@ const ports: Port[] = [
 const coefficientDeltas = [0, -4, -10, -17, -24, -30, -35];
 
 type IconName = "waves" | "chevron" | "arrow-up" | "arrow-down" | "play" | "pause" | "search" | "check";
+
+function clamp(value: number, minimum = 0, maximum = 1) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
 
 function Icon({ name, className = "" }: { name: IconName; className?: string }) {
   return <span className={`ui-icon ui-icon-${name} ${className}`.trim()} aria-hidden="true" />;
@@ -322,6 +328,7 @@ export default function Home() {
   const screenStackRef = useRef<HTMLDivElement>(null);
   const waterRef = useRef<HTMLDivElement>(null);
   const disturbanceTimerRef = useRef<number | null>(null);
+  const disturbanceStartedAtRef = useRef<number | null>(null);
   const sliderStartMinutesRef = useRef(12 * 60);
   const screenDragRef = useRef<ScreenDrag | null>(null);
   const suppressForecastClickRef = useRef(false);
@@ -502,8 +509,20 @@ export default function Home() {
     return { min: Math.min(...heights), max: Math.max(...heights) };
   }, [demoTidePoints, hasLiveData, liveLevelsToday]);
   const rangeSpan = Math.max(0.5, tideRange.max - tideRange.min);
-  const waterLevel = 20 + ((tide.height - tideRange.min) / rangeSpan) * 58;
+  const tideProgress = clamp((tide.height - tideRange.min) / rangeSpan);
+  const waterLevel = 20 + tideProgress * 58;
   const waterShift = ((84 - waterLevel) / 84) * 100;
+  const beachExposure = clamp((0.7 - tideProgress) / 0.5);
+  const birdLight = clamp(1 - dayCycle.night * 2.1);
+  const shoreBirdOpacity = clamp((0.46 - tideProgress) / 0.2) * birdLight;
+  const flightBirdOpacity = clamp((tideProgress - 0.48) / 0.2) * birdLight;
+  const tideScene = tideProgress <= 0.34
+    ? "low"
+    : tideProgress >= 0.66
+      ? "high"
+      : tide.rising
+        ? "departing"
+        : "arriving";
   const scaleMaximum = Math.max(4, Math.ceil(tideRange.max));
   const levelMarkers = [1, 0.75, 0.5, 0.25].map((ratio) =>
     Math.max(1, Math.round(scaleMaximum * ratio)),
@@ -537,7 +556,121 @@ export default function Home() {
     "--sun-y": dayCycle.sunY.toFixed(2),
     "--moon-x": dayCycle.moonX.toFixed(2),
     "--moon-y": dayCycle.moonY.toFixed(2),
+    "--water-shift": `${waterShift}%`,
+    "--tide-progress": tideProgress.toFixed(3),
+    "--beach-exposure": beachExposure.toFixed(3),
+    "--shore-birds-opacity": shoreBirdOpacity.toFixed(3),
+    "--flight-birds-opacity": flightBirdOpacity.toFixed(3),
   } as React.CSSProperties;
+
+  useEffect(() => {
+    const water = waterRef.current;
+    if (!water) return;
+
+    const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let frame = 0;
+
+    const setCalmPose = () => {
+      water.style.setProperty("--wave-front-x", "0%");
+      water.style.setProperty("--wave-front-y", "0px");
+      water.style.setProperty("--wave-front-roll", "0deg");
+      water.style.setProperty("--wave-front-scale", "1");
+      water.style.setProperty("--wave-back-x", "0%");
+      water.style.setProperty("--wave-back-y", "0px");
+      water.style.setProperty("--wave-back-roll", "0deg");
+      water.style.setProperty("--wave-back-scale", "1");
+      water.style.setProperty("--foam-x", "0%");
+      water.style.setProperty("--foam-y", "0px");
+      water.style.setProperty("--foam-scale", "1");
+      water.style.setProperty("--boat-heave", "0px");
+      water.style.setProperty("--boat-shadow-heave", "0px");
+      water.style.setProperty("--boat-roll", "0deg");
+      water.style.setProperty("--boat-pitch", "0deg");
+    };
+
+    const animate = (now: number) => {
+      frame = 0;
+      if (document.hidden || motionPreference.matches || isUnderwater) {
+        setCalmPose();
+        return;
+      }
+
+      const time = now / 1000;
+      const disturbanceAge = disturbanceStartedAtRef.current === null
+        ? Number.POSITIVE_INFINITY
+        : Math.max(0, (now - disturbanceStartedAtRef.current) / 1000);
+      const burstEnvelope = disturbanceAge < 1.05
+        ? Math.exp(-3.15 * disturbanceAge) * (1 - Math.exp(-28 * disturbanceAge))
+        : 0;
+      const burst = burstEnvelope * (
+        Math.sin(disturbanceAge * 29) * 0.74 +
+        Math.sin(disturbanceAge * 47 + 0.8) * 0.26
+      );
+
+      const front =
+        Math.sin(time * 1.31) * 0.68 +
+        Math.sin(time * 2.17 + 0.9) * 0.23 +
+        Math.sin(time * 0.73 + 2.2) * 0.09;
+      const back =
+        Math.sin(time * 1.03 + 1.7) * 0.64 +
+        Math.sin(time * 1.91 + 0.2) * 0.26 +
+        Math.sin(time * 0.61 + 2.8) * 0.1;
+      const boatWave =
+        Math.sin(time * 1.31 + 0.74) * 0.66 +
+        Math.sin(time * 2.17 + 1.64) * 0.24 +
+        Math.sin(time * 0.73 + 2.94) * 0.1;
+      const boatSlope =
+        Math.cos(time * 1.31 + 0.74) * 0.72 +
+        Math.cos(time * 2.17 + 1.64) * 0.28;
+
+      water.style.setProperty("--wave-front-x", `${(front * 2.4 + burst * 7.5).toFixed(2)}%`);
+      water.style.setProperty("--wave-front-y", `${(front * 2.2 + burst * 8.4).toFixed(2)}px`);
+      water.style.setProperty("--wave-front-roll", `${(front * 0.55 + burst * 2.4).toFixed(2)}deg`);
+      water.style.setProperty("--wave-front-scale", `${(1 + front * 0.075 + Math.abs(burst) * 0.19).toFixed(3)}`);
+      water.style.setProperty("--wave-back-x", `${(back * -3 + burst * -6.8).toFixed(2)}%`);
+      water.style.setProperty("--wave-back-y", `${(back * 1.8 + burst * -6.5).toFixed(2)}px`);
+      water.style.setProperty("--wave-back-roll", `${(back * -0.62 + burst * -2.1).toFixed(2)}deg`);
+      water.style.setProperty("--wave-back-scale", `${(1 + back * 0.07 + Math.abs(burst) * 0.16).toFixed(3)}`);
+      water.style.setProperty("--foam-x", `${(front * 1.9 + burst * 6).toFixed(2)}%`);
+      water.style.setProperty("--foam-y", `${(front * -1.5 + burst * -5.8).toFixed(2)}px`);
+      water.style.setProperty("--foam-scale", `${(1 + back * 0.035 + Math.abs(burst) * 0.14).toFixed(3)}`);
+      water.style.setProperty("--boat-heave", `${(boatWave * 2.4 + burst * 7.2).toFixed(2)}px`);
+      water.style.setProperty("--boat-shadow-heave", `${(boatWave * 0.45 + burst * 1.3).toFixed(2)}px`);
+      water.style.setProperty("--boat-roll", `${(boatSlope * 2.15 + burst * 6.4).toFixed(2)}deg`);
+      water.style.setProperty("--boat-pitch", `${(boatWave * -1.15 + burst * -3.1).toFixed(2)}deg`);
+
+      frame = window.requestAnimationFrame(animate);
+    };
+
+    const start = () => {
+      if (!frame && !document.hidden && !motionPreference.matches && !isUnderwater) {
+        frame = window.requestAnimationFrame(animate);
+      }
+    };
+    const stop = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = 0;
+      setCalmPose();
+    };
+    const handleVisibility = () => {
+      if (document.hidden) stop();
+      else start();
+    };
+    const handleMotionPreference = () => {
+      if (motionPreference.matches) stop();
+      else start();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    motionPreference.addEventListener("change", handleMotionPreference);
+    start();
+
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      motionPreference.removeEventListener("change", handleMotionPreference);
+    };
+  }, [isUnderwater]);
 
   function agitateWater() {
     const water = waterRef.current;
@@ -546,6 +679,7 @@ export default function Home() {
     water.classList.remove("is-disturbed");
     void water.offsetWidth;
     water.classList.add("is-disturbed");
+    disturbanceStartedAtRef.current = window.performance.now();
 
     if (disturbanceTimerRef.current !== null) {
       window.clearTimeout(disturbanceTimerRef.current);
@@ -809,6 +943,8 @@ export default function Home() {
           <section
             className={`surface-screen phase-${dayCycle.phase} ${sceneReady ? "scene-ready" : "scene-pending"}${isPlaying ? " is-playing" : ""}`}
             style={atmosphereStyle}
+            data-tide-scene={tideScene}
+            data-tide-direction={tide.rising ? "rising" : "falling"}
             aria-hidden={isUnderwater}
             inert={isUnderwater ? true : undefined}
           >
@@ -824,10 +960,32 @@ export default function Home() {
               <div className="horizon-haze" />
             </div>
 
+            <div className="beach-scene" aria-hidden="true">
+              <div className="beach-sand beach-sand-dry" />
+              <div className="beach-sand-texture" />
+              <div className="shoreline-track">
+                <span className="beach-sand-wet" />
+              </div>
+              <div className="beach-rivulets">
+                <span className="rivulet rivulet-one" />
+                <span className="rivulet rivulet-two" />
+                <span className="rivulet rivulet-three" />
+              </div>
+              <div className="beach-shells">
+                <span className="shell shell-one" />
+                <span className="shell shell-two" />
+                <span className="shell shell-three" />
+                <span className="shell shell-four" />
+              </div>
+              <div className="coastal-birds shore-birds">
+                <span className="shore-bird bird-one"><i /></span>
+                <span className="shore-bird bird-two"><i /></span>
+              </div>
+            </div>
+
             <div
               ref={waterRef}
               className="water"
-              style={{ "--water-shift": `${waterShift}%` } as React.CSSProperties}
               aria-hidden="true"
             >
               <div className="water-night" />
@@ -841,15 +999,21 @@ export default function Home() {
               <span className="water-spray spray-one" />
               <span className="water-spray spray-two" />
               <span className="water-spray spray-three" />
-              <div className="toy-boat">
-                <span className="boat-flag" />
-                <span className="boat-mast" />
-                <span className="boat-sail" />
-                <span className="boat-lantern" />
-                <span className="boat-hull" />
-                <span className="boat-ripple" />
+              <div className="boat-25d">
+                <img className="boat-layer boat-shadow-layer" src="/art/boat-shadow.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
+                <img className="boat-layer boat-reflection-layer" src="/art/boat-reflection.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
+                <div className="boat-body">
+                  <img className="boat-layer boat-sail-layer" src="/art/boat-sail.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
+                  <img className="boat-layer boat-hull-layer" src="/art/boat-hull.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
+                </div>
               </div>
               <div className="water-glint" />
+            </div>
+
+            <div className="coastal-birds flight-birds" aria-hidden="true">
+              <span className="flight-bird bird-one" />
+              <span className="flight-bird bird-two" />
+              <span className="flight-bird bird-three" />
             </div>
 
             <div className="interface">
@@ -916,39 +1080,6 @@ export default function Home() {
               </div>
 
               <section className="controls" aria-label="Explorer la marée au fil de la journée">
-                <div className="tide-events-heading">
-                  <h2 id="today-tides-title">Horaires des marées</h2>
-                  <span>Aujourd’hui</span>
-                </div>
-
-                <div className="tide-events" role="group" aria-labelledby="today-tides-title">
-                  {visibleTides.map((point) => {
-                    const isActive = minutes === point.minutes;
-                    return (
-                      <button
-                        className={`event ${isActive ? "is-active" : ""}`}
-                        key={point.minutes}
-                        type="button"
-                        onClick={() => jumpToTide(point)}
-                        aria-pressed={isActive}
-                        aria-label={`Aller à ${point.kind.toLowerCase()} à ${formatTime(point.minutes)}, hauteur ${point.height.toFixed(1)} mètres${point.coefficient === null ? "" : `, coefficient ${point.coefficient}`}`}
-                      >
-                        <span className={point.kind === "Pleine mer" ? "event-icon high" : "event-icon low"}>
-                          <Icon name={point.kind === "Pleine mer" ? "arrow-up" : "arrow-down"} />
-                        </span>
-                        <span className="event-copy">
-                          <span>{point.kind}</span>
-                          <strong>{formatTime(point.minutes)}</strong>
-                        </span>
-                        <span className="event-height">
-                          {point.height.toFixed(1).replace(".", ",")} m
-                          {point.coefficient === null ? null : <small> · {point.coefficient}</small>}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
                 <div className="time-row">
                   <div>
                     <p>Heure explorée</p>
@@ -984,75 +1115,109 @@ export default function Home() {
                   </div>
                 </div>
 
-                <label className="sr-only" htmlFor="time-slider">
-                  Choisir l’heure de la journée
-                </label>
-                <input
-                  id="time-slider"
-                  className="time-slider"
-                  type="range"
-                  min="0"
-                  max="1435"
-                  step="1"
-                  value={minutes}
-                  aria-valuetext={`${formatTime(minutes)}, ${dayCycle.label.toLowerCase()}, hauteur ${tide.height.toFixed(1).replace(".", ",")} mètres, marée ${tide.rising ? "montante" : "descendante"}`}
-                  onPointerDown={() => {
-                    sliderStartMinutesRef.current = minutes;
-                  }}
-                  onPointerUp={(event) => {
-                    const value = Number(event.currentTarget.value);
-                    const difference = Math.abs(value - sliderStartMinutesRef.current);
-                    if (Math.min(difference, 1440 - difference) >= 75) agitateWater();
-                  }}
-                  onChange={(event) => {
-                    setIsPlaying(false);
-                    setIsFollowingLive(false);
-                    setMinutes(Number(event.target.value));
-                  }}
-                  style={{ "--progress": `${(minutes / 1435) * 100}%` } as React.CSSProperties}
-                />
-                <div className="range-labels" aria-hidden="true">
-                  <span>00:00</span>
-                  <span>Midi</span>
-                  <span>24:00</span>
+                <div className="slider-stack">
+                  <label className="sr-only" htmlFor="time-slider">
+                    Choisir l’heure de la journée
+                  </label>
+                  <input
+                    id="time-slider"
+                    className="time-slider"
+                    type="range"
+                    min="0"
+                    max="1435"
+                    step="1"
+                    value={minutes}
+                    aria-valuetext={`${formatTime(minutes)}, ${dayCycle.label.toLowerCase()}, hauteur ${tide.height.toFixed(1).replace(".", ",")} mètres, marée ${tide.rising ? "montante" : "descendante"}`}
+                    onPointerDown={() => {
+                      sliderStartMinutesRef.current = minutes;
+                    }}
+                    onPointerUp={(event) => {
+                      const value = Number(event.currentTarget.value);
+                      const difference = Math.abs(value - sliderStartMinutesRef.current);
+                      if (Math.min(difference, 1440 - difference) >= 75) agitateWater();
+                    }}
+                    onChange={(event) => {
+                      setIsPlaying(false);
+                      setIsFollowingLive(false);
+                      setMinutes(Number(event.target.value));
+                    }}
+                    style={{ "--progress": `${(minutes / 1435) * 100}%` } as React.CSSProperties}
+                  />
+                  <div className="range-labels" aria-hidden="true">
+                    <span>00:00</span>
+                    <span>Midi</span>
+                    <span>24:00</span>
+                  </div>
                 </div>
 
-                <button
-                  ref={forecastButtonRef}
-                  className="forecast-button"
-                  type="button"
-                  data-screen-swipe-handle
-                  onClick={() => {
-                    if (suppressForecastClickRef.current) {
-                      suppressForecastClickRef.current = false;
-                      if (forecastClickResetTimerRef.current !== null) {
-                        window.clearTimeout(forecastClickResetTimerRef.current);
-                        forecastClickResetTimerRef.current = null;
-                      }
-                      return;
-                    }
-                    showForecast();
-                  }}
-                  aria-label="Afficher les prévisions des 7 prochains jours"
-                >
-                  <span>Glisser vers le haut <small>· 7 jours</small></span>
-                </button>
-                <div className="data-provenance">
-                  <span
-                    className={`source-badge ${hasLiveData ? "source-badge--live" : "source-badge--demo"}`}
-                  >
-                    {sourceLabel}
-                  </span>
+                <h2 id="today-tides-title" className="sr-only">Horaires des marées aujourd’hui</h2>
+                <div className="tide-events" role="group" aria-labelledby="today-tides-title">
+                  {visibleTides.map((point) => {
+                    const isActive = minutes === point.minutes;
+                    return (
+                      <button
+                        className={`event ${isActive ? "is-active" : ""}`}
+                        key={point.minutes}
+                        type="button"
+                        onClick={() => jumpToTide(point)}
+                        aria-pressed={isActive}
+                        aria-label={`Aller à ${point.kind.toLowerCase()} à ${formatTime(point.minutes)}, hauteur ${point.height.toFixed(1)} mètres${point.coefficient === null ? "" : `, coefficient ${point.coefficient}`}`}
+                      >
+                        <span className={point.kind === "Pleine mer" ? "event-icon high" : "event-icon low"}>
+                          <Icon name={point.kind === "Pleine mer" ? "arrow-up" : "arrow-down"} />
+                        </span>
+                        <span className="event-copy">
+                          <span>{point.kind}</span>
+                          <strong>{formatTime(point.minutes)}</strong>
+                        </span>
+                        <span className="event-height">
+                          {point.height.toFixed(1).replace(".", ",")} m
+                          {point.coefficient === null ? null : <small> · {point.coefficient}</small>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="controls-footer">
                   <button
-                    className="source-badge source-badge--official"
+                    ref={forecastButtonRef}
+                    className="forecast-button"
                     type="button"
-                    data-no-screen-swipe
-                    aria-haspopup="dialog"
-                    aria-controls="shom-tide-dialog"
-                    onClick={(event) => openShomWidget(event.currentTarget)}
+                    data-screen-swipe-handle
+                    onClick={() => {
+                      if (suppressForecastClickRef.current) {
+                        suppressForecastClickRef.current = false;
+                        if (forecastClickResetTimerRef.current !== null) {
+                          window.clearTimeout(forecastClickResetTimerRef.current);
+                          forecastClickResetTimerRef.current = null;
+                        }
+                        return;
+                      }
+                      showForecast();
+                    }}
+                    aria-label="Afficher les prévisions des 7 prochains jours"
                   >
-                    Horaires officiels SHOM
+                    <span><span className="forecast-gesture">Glisser · </span>7 jours</span>
                   </button>
+                  <div className="data-provenance">
+                    <span
+                      className={`source-badge ${hasLiveData ? "source-badge--live" : "source-badge--demo"}`}
+                    >
+                      {sourceLabel}
+                    </span>
+                    <button
+                      className="source-badge source-badge--official"
+                      type="button"
+                      data-no-screen-swipe
+                      aria-label="Consulter les horaires officiels SHOM"
+                      aria-haspopup="dialog"
+                      aria-controls="shom-tide-dialog"
+                      onClick={(event) => openShomWidget(event.currentTarget)}
+                    >
+                      SHOM
+                    </button>
+                  </div>
                 </div>
               </section>
             </div>

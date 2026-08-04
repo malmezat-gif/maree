@@ -665,150 +665,352 @@ button {
 .spray-two { --spray-x: 12px; --spray-y: -34px; }
 .spray-three { --spray-x: 20px; --spray-y: -48px; }
 
-.toy-boat {
+/* The shore is a real layer behind the water: rising water covers it instead
+   of merely fading a decorative illustration in and out. */
+.beach-scene {
   position: absolute;
-  z-index: 4;
-  top: -49px;
-  left: 60%;
-  width: 88px;
-  height: 65px;
-  transform-origin: 50% 88%;
-  animation: boat-bob 2.15s ease-in-out infinite;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
 
-.boat-hull {
+.beach-sand,
+.beach-sand-texture {
   position: absolute;
-  z-index: 3;
-  left: 8px;
-  bottom: 8px;
-  width: 76px;
-  height: 22px;
-  border-radius: 5px 5px 32px 32px;
-  background: linear-gradient(180deg, #f8c672 0%, #e8a44c 45%, #c97b31 100%);
-  box-shadow:
-    inset 0 2px 0 rgba(255, 255, 255, 0.72),
-    inset 0 -4px 8px rgba(119, 61, 24, 0.12),
-    0 5px 10px rgba(3, 65, 91, 0.2);
-  transform: skewX(-4deg);
+  right: -9%;
+  bottom: 0;
+  left: -9%;
+  height: 56%;
+  clip-path: polygon(0 13%, 13% 9%, 29% 11%, 47% 5%, 66% 8%, 83% 3%, 100% 7%, 100% 100%, 0 100%);
 }
 
-.boat-hull::after {
+.beach-sand-dry {
+  background:
+    radial-gradient(circle at 13% 23%, rgba(139, 100, 56, 0.28) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 66% 36%, rgba(255, 247, 216, 0.6) 0 1.2px, transparent 1.8px),
+    radial-gradient(circle at 84% 63%, rgba(151, 105, 56, 0.22) 0 0.9px, transparent 1.5px),
+    linear-gradient(167deg, #f2dfb2 0%, #e7c992 42%, #d8b47b 100%);
+  background-size: 43px 39px, 61px 53px, 37px 47px, auto;
+  box-shadow: inset 0 18px 34px rgba(255, 248, 218, 0.16);
+}
+
+.beach-sand-texture {
+  opacity: calc(0.34 + var(--beach-exposure) * 0.38);
+  background:
+    radial-gradient(ellipse 68px 9px at 18% 34%, transparent 46%, rgba(132, 94, 58, 0.1) 51%, transparent 58%),
+    radial-gradient(ellipse 92px 11px at 72% 57%, transparent 45%, rgba(255, 246, 215, 0.2) 50%, transparent 58%),
+    radial-gradient(ellipse 52px 7px at 48% 81%, transparent 44%, rgba(121, 89, 57, 0.08) 50%, transparent 59%);
+  transition: opacity 420ms linear;
+}
+
+.shoreline-track {
+  position: absolute;
+  top: 16%;
+  right: -20%;
+  left: -20%;
+  height: 84%;
+  transform: translate3d(0, var(--water-shift), 0);
+  transition: transform 220ms var(--spring-smooth);
+}
+
+.surface-screen.is-playing .shoreline-track {
+  transition-duration: 145ms;
+  transition-timing-function: linear;
+}
+
+.beach-sand-wet {
+  position: absolute;
+  top: -62px;
+  right: 0;
+  left: 0;
+  height: 66px;
+  opacity: var(--beach-exposure);
+  background:
+    linear-gradient(180deg, transparent 0%, rgba(147, 112, 75, 0.08) 13%, rgba(133, 101, 69, 0.4) 68%, rgba(91, 95, 78, 0.54) 100%),
+    radial-gradient(ellipse 44% 45% at 26% 100%, rgba(210, 224, 194, 0.24), transparent 70%);
+  box-shadow: inset 0 -2px 0 rgba(236, 249, 231, 0.28);
+  transition: opacity 260ms linear;
+}
+
+.beach-rivulets,
+.beach-shells {
+  position: absolute;
+  inset: 0;
+  opacity: var(--beach-exposure);
+  transition: opacity 360ms linear;
+}
+
+.rivulet {
+  position: absolute;
+  display: block;
+  height: 16px;
+  border-top: 2px solid rgba(92, 136, 137, 0.28);
+  border-radius: 50%;
+  filter: drop-shadow(0 1px 0 rgba(242, 240, 203, 0.22));
+}
+
+.rivulet-one { top: 66%; left: 9%; width: 34%; transform: rotate(5deg); }
+.rivulet-two { top: 72%; right: 5%; width: 43%; transform: rotate(-7deg); }
+.rivulet-three { top: 79%; left: 35%; width: 28%; transform: rotate(2deg); opacity: 0.62; }
+
+.shell {
+  position: absolute;
+  width: 9px;
+  height: 7px;
+  display: block;
+  border-radius: 70% 70% 42% 42%;
+  background:
+    linear-gradient(90deg, transparent 22%, rgba(149, 94, 77, 0.3) 24% 29%, transparent 31% 47%, rgba(149, 94, 77, 0.3) 49% 54%, transparent 56%),
+    linear-gradient(150deg, #f6d7bd, #d79b83);
+  box-shadow: 0 1px 2px rgba(104, 75, 53, 0.16);
+}
+
+.shell-one { top: 62%; left: 21%; transform: rotate(-18deg) scale(0.8); }
+.shell-two { top: 69%; left: 72%; transform: rotate(24deg); }
+.shell-three { top: 76%; left: 49%; transform: rotate(-6deg) scale(0.72); }
+.shell-four { top: 82%; left: 84%; transform: rotate(31deg) scale(0.62); }
+
+.coastal-birds {
+  position: absolute;
+  pointer-events: none;
+  transition: opacity 520ms linear, transform 640ms var(--spring-smooth), visibility 0s linear 520ms;
+}
+
+.shore-birds {
+  z-index: 2;
+  inset: 0;
+  opacity: var(--shore-birds-opacity);
+  transform: translate3d(0, 0, 0);
+}
+
+.shore-bird {
+  position: absolute;
+  display: block;
+  width: 13px;
+  height: 6px;
+  border-radius: 65% 58% 48% 50%;
+  background: #4e5a57;
+  box-shadow: 0 1px 1px rgba(95, 69, 45, 0.15);
+}
+
+.shore-bird::before {
   content: "";
   position: absolute;
-  left: 14px;
-  right: 9px;
-  top: 6px;
-  height: 3px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.62);
+  right: -3px;
+  top: -2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #59635e;
 }
 
-.boat-mast {
+.shore-bird::after {
+  content: "";
   position: absolute;
-  z-index: 2;
-  left: 49px;
-  bottom: 29px;
-  width: 3px;
-  height: 32px;
-  border-radius: 999px;
-  background: #77583e;
+  right: -6px;
+  top: 0;
+  width: 4px;
+  border-top: 2px solid #c98252;
+  transform: rotate(-8deg);
 }
 
-.boat-sail {
+.shore-bird i {
   position: absolute;
-  z-index: 2;
-  left: 52px;
-  bottom: 32px;
-  width: 26px;
-  height: 29px;
-  clip-path: polygon(0 0, 0 100%, 100% 100%);
-  border-radius: 2px;
-  background: linear-gradient(145deg, #ffffff, #a4dce5);
-  filter: drop-shadow(0 2px 2px rgba(7, 65, 96, 0.12));
+  right: 2px;
+  top: 4px;
+  width: 5px;
+  height: 5px;
+  border-right: 1px solid rgba(64, 67, 59, 0.72);
+  border-left: 1px solid rgba(64, 67, 59, 0.72);
 }
 
-.boat-flag {
+.shore-bird.bird-one { top: 66%; left: 58%; transform: rotate(3deg); }
+.shore-bird.bird-two { top: 72%; left: 32%; transform: rotate(-5deg) scale(0.82); }
+
+.flight-birds {
+  z-index: 2;
+  top: 16%;
+  right: 8%;
+  width: 128px;
+  height: 68px;
+  opacity: var(--flight-birds-opacity);
+  transform: translate3d(0, 0, 0);
+}
+
+.flight-bird {
+  position: absolute;
+  display: block;
+  width: 24px;
+  height: 12px;
+  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.12));
+  transition: transform 720ms var(--spring-smooth);
+}
+
+.flight-bird::before,
+.flight-bird::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  width: 13px;
+  height: 7px;
+  border-top: 2px solid rgba(45, 67, 72, 0.78);
+  border-radius: 50%;
+}
+
+.flight-bird::before { left: 0; transform: rotate(14deg); }
+.flight-bird::after { right: 0; transform: rotate(-14deg); }
+.flight-bird.bird-one { top: 4px; right: 3px; transform: rotate(-4deg); }
+.flight-bird.bird-two { top: 30px; right: 48px; transform: rotate(5deg) scale(0.78); }
+.flight-bird.bird-three { top: 7px; left: 2px; transform: rotate(2deg) scale(0.62); }
+
+[data-tide-scene="departing"] .flight-birds { transform: translate3d(8px, -8px, 0); }
+[data-tide-scene="arriving"] .flight-birds { transform: translate3d(-6px, 6px, 0); }
+[data-tide-scene="high"] .flight-bird.bird-one { transform: translate3d(7px, -4px, 0) rotate(-7deg); }
+[data-tide-scene="high"] .flight-bird.bird-two { transform: translate3d(-5px, 2px, 0) rotate(6deg) scale(0.78); }
+[data-tide-scene="high"] .flight-bird.bird-three { transform: translate3d(4px, -2px, 0) rotate(1deg) scale(0.62); }
+
+.surface-screen.phase-night .coastal-birds {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* Organic surface movement and a real four-layer boat share the same wave
+   variables, updated without re-rendering the interface. */
+.water {
+  z-index: 2;
+  background:
+    radial-gradient(ellipse 46% 15% at 16% 7%, rgba(231, 253, 253, 0.48), transparent 71%),
+    radial-gradient(ellipse 39% 20% at 76% 18%, rgba(105, 211, 224, 0.32), transparent 73%),
+    radial-gradient(ellipse 70% 31% at 37% 51%, rgba(22, 148, 183, 0.2), transparent 76%),
+    radial-gradient(ellipse 82% 45% at 67% 92%, rgba(3, 73, 120, 0.28), transparent 78%),
+    linear-gradient(176deg, #78d5df 0%, #43b8cd 22%, #168fb5 57%, #075e8d 100%);
+}
+
+.water::before {
+  top: -12px;
+  height: 25px;
+  border-radius: 46% 54% 43% 57%;
+  background:
+    radial-gradient(ellipse 11% 80% at 7% 68%, rgba(255, 255, 255, 0.98), transparent 74%),
+    radial-gradient(ellipse 18% 68% at 25% 29%, rgba(240, 253, 254, 0.9), transparent 76%),
+    radial-gradient(ellipse 14% 76% at 53% 65%, rgba(255, 255, 255, 0.9), transparent 74%),
+    radial-gradient(ellipse 22% 70% at 81% 30%, rgba(228, 250, 252, 0.9), transparent 77%),
+    rgba(225, 249, 251, 0.78);
+  transform: translate3d(var(--wave-front-x, 0%), var(--wave-front-y, 0px), 0) rotate(var(--wave-front-roll, 0deg)) scaleY(var(--wave-front-scale, 1));
+  animation: none;
+}
+
+.water::after {
+  top: -5px;
+  height: 18px;
+  border-radius: 55% 45% 58% 42%;
+  background:
+    radial-gradient(ellipse 17% 78% at 31% 36%, rgba(201, 241, 246, 0.58), transparent 76%),
+    radial-gradient(ellipse 24% 72% at 74% 58%, rgba(132, 219, 231, 0.5), transparent 77%),
+    rgba(65, 181, 205, 0.54);
+  transform: translate3d(var(--wave-back-x, 0%), var(--wave-back-y, 0px), 0) rotate(var(--wave-back-roll, 0deg)) scaleY(var(--wave-back-scale, 1));
+  animation: none;
+}
+
+.water-caustics { animation-duration: 17.3s; }
+.water-pattern { animation-duration: 13.7s; }
+.water-current-one { animation-duration: 7.9s; }
+.water-current-two { animation-duration: 11.3s; }
+.water-glint { animation-duration: 8.3s; }
+
+.water-foam {
+  opacity: calc(0.54 + var(--beach-exposure) * 0.3);
+  background:
+    radial-gradient(ellipse 26px 5px at 5% 61%, rgba(255, 255, 255, 0.9), transparent 74%),
+    radial-gradient(ellipse 41px 7px at 23% 28%, rgba(239, 252, 253, 0.78), transparent 76%),
+    radial-gradient(ellipse 18px 4px at 43% 72%, rgba(255, 255, 255, 0.84), transparent 73%),
+    radial-gradient(ellipse 36px 6px at 68% 36%, rgba(229, 250, 252, 0.78), transparent 76%),
+    radial-gradient(ellipse 28px 5px at 91% 64%, rgba(255, 255, 255, 0.86), transparent 75%);
+  background-size: 137px 18px, 203px 18px, 111px 18px, 181px 18px, 157px 18px;
+  transform: translate3d(var(--foam-x, 0%), var(--foam-y, 0px), 0) scaleX(var(--foam-scale, 1));
+  animation: none;
+}
+
+.water.is-disturbed::before,
+.water.is-disturbed::after {
+  animation: none;
+}
+
+.boat-25d {
   position: absolute;
   z-index: 4;
-  left: 51px;
-  bottom: 57px;
-  width: 15px;
-  height: 8px;
-  border-radius: 1px 5px 5px 1px;
-  background: var(--accent);
+  top: 0;
+  left: 66%;
+  width: 138px;
+  height: 138px;
+  pointer-events: none;
+  perspective: 520px;
+  transform: translateX(-50%);
+  transform-style: preserve-3d;
 }
 
-.boat-ripple {
+.boat-layer,
+.boat-body {
   position: absolute;
-  left: 4px;
-  bottom: 0;
-  width: 82px;
-  height: 10px;
-  border: 1px solid rgba(237, 252, 255, 0.84);
-  border-color: rgba(237, 252, 255, 0.84) transparent transparent;
-  border-radius: 50%;
-  transform-origin: center;
-  animation: boat-ripple-breathe 1.8s ease-in-out infinite;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
-.boat-lantern {
-  position: absolute;
-  z-index: 5;
-  left: 43px;
-  bottom: 28px;
-  width: 7px;
-  height: 7px;
-  border: 1px solid rgba(255, 246, 205, 0.9);
-  border-radius: 50%;
-  opacity: var(--night);
-  background: #ffd978;
-  box-shadow:
-    0 0 0 4px rgba(255, 217, 120, 0.12),
-    0 0 18px 7px rgba(255, 203, 96, 0.34);
-  transition: opacity 420ms linear;
-  animation: lantern-breathe 2.4s ease-in-out infinite alternate;
+.boat-layer {
+  object-fit: contain;
+  user-select: none;
 }
 
-@keyframes boat-bob {
-  0%, 100% { transform: translate3d(-1px, 0, 0) rotate(-2.8deg); }
-  24% { transform: translate3d(0.5px, 2px, 0) rotate(-0.35deg); }
-  53% { transform: translate3d(1.5px, 6px, 0) rotate(2.4deg); }
-  78% { transform: translate3d(0, 2px, 0) rotate(0.3deg); }
+.boat-body {
+  z-index: 3;
+  inset: auto 0 0;
+  top: -97.5%;
+  transform: translate3d(0, var(--boat-heave, 0px), 0) rotateZ(var(--boat-roll, 0deg)) rotateX(var(--boat-pitch, 0deg));
+  transform-origin: 50% 98%;
+  transform-style: preserve-3d;
+  will-change: transform;
 }
 
-@keyframes boat-ripple-breathe {
-  0%, 100% { opacity: 0.42; transform: translateX(-2px) scaleX(0.72); }
-  46% { opacity: 0.98; transform: translateX(2px) scaleX(1.12); }
-  72% { opacity: 0.66; transform: translateX(0) scaleX(0.92); }
+.boat-sail-layer {
+  z-index: 1;
+  filter: saturate(0.88) contrast(0.97) drop-shadow(0 4px 5px rgba(3, 61, 87, 0.12));
 }
 
-.water.is-disturbed .toy-boat {
-  animation: boat-toss 980ms linear both;
+.boat-hull-layer {
+  z-index: 2;
+  filter: saturate(0.82) contrast(0.96) drop-shadow(0 5px 7px rgba(2, 48, 70, 0.2));
 }
 
-.water.is-disturbed .boat-ripple {
-  animation: boat-ripple-toss 900ms linear both;
+.boat-shadow-layer {
+  z-index: 1;
+  bottom: auto;
+  top: -41.5%;
+  opacity: calc(0.12 + var(--daylight) * 0.16);
+  filter: blur(1.2px) saturate(0.65);
+  transform: translate3d(0, var(--boat-shadow-heave, 0px), 0) scaleX(0.86);
+  transform-origin: 50% 43%;
 }
 
-@keyframes boat-toss {
-  0%, 100% { transform: translate3d(-1px, 0, 0) rotate(-2.8deg); }
-  11% { transform: translate3d(-6px, -8px, 0) rotate(-8deg); }
-  27% { transform: translate3d(7px, 5px, 0) rotate(7deg); }
-  46% { transform: translate3d(-4px, -4px, 0) rotate(-4.2deg); }
-  66% { transform: translate3d(2px, 2px, 0) rotate(2.5deg); }
-  82% { transform: translate3d(-1px, -1px, 0) rotate(-1.4deg); }
+.boat-reflection-layer {
+  z-index: 2;
+  bottom: auto;
+  top: -24%;
+  opacity: calc(0.1 + var(--daylight) * 0.2 + var(--moonlight) * 0.08);
+  filter: saturate(0.8) blur(0.55px);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.45) 62%, transparent 100%);
+  transform: translate3d(0, var(--boat-heave, 0px), 0) skewX(var(--wave-front-roll, 0deg));
+  transform-origin: 50% 25%;
 }
 
-@keyframes boat-ripple-toss {
-  0%, 100% { opacity: 0.5; transform: scaleX(0.78); }
-  13% { opacity: 1; transform: translateX(-7px) scaleX(0.55) scaleY(1.35); }
-  31% { opacity: 0.35; transform: translateX(8px) scaleX(1.45) scaleY(0.72); }
-  52% { opacity: 0.88; transform: translateX(-4px) scaleX(0.8) scaleY(1.1); }
-  74% { opacity: 0.5; transform: translateX(2px) scaleX(1.1); }
+.surface-screen:is(.phase-night, .phase-dusk) .boat-body {
+  filter: brightness(0.72) saturate(0.78) drop-shadow(0 5px 10px rgba(1, 21, 38, 0.34));
 }
 
-@keyframes lantern-breathe {
-  to { opacity: calc(var(--night) * 0.72); }
+.surface-screen.scene-pending .beach-scene,
+.surface-screen.scene-pending .coastal-birds {
+  opacity: 0;
 }
 
 .surface-screen:is(.phase-night, .phase-dusk) .water::before {
@@ -821,7 +1023,7 @@ button {
 
 .interface {
   position: relative;
-  z-index: 3;
+  z-index: 4;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -1240,7 +1442,7 @@ button {
   z-index: 0;
   top: 238px;
   right: 13px;
-  bottom: 300px;
+  bottom: 226px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -1323,10 +1525,15 @@ button {
   position: relative;
   overflow: hidden;
   margin-top: auto;
-  padding: 17px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 4px;
+  padding: 12px 14px;
   border: 1px solid rgba(255, 255, 255, 0.9);
-  border-radius: 32px;
-  background: rgba(251, 253, 253, 0.96);
+  border-radius: 27px;
+  background: rgba(249, 252, 252, 0.9);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
   box-shadow:
     0 24px 55px rgba(6, 61, 86, 0.17),
     0 4px 14px rgba(6, 61, 86, 0.07),
@@ -1357,10 +1564,11 @@ button {
 }
 
 .time-row {
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 10px;
+  margin: 0;
 }
 
 .time-row p {
@@ -1374,7 +1582,7 @@ button {
 }
 
 .time-row strong {
-  font-size: 32px;
+  font-size: 30px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -1506,7 +1714,7 @@ button {
   --progress: 50%;
   width: 100%;
   height: 44px;
-  margin: 4px 0 0;
+  margin: 0;
   appearance: none;
   background: transparent;
   cursor: pointer;
@@ -1571,62 +1779,48 @@ button {
 .range-labels {
   display: flex;
   justify-content: space-between;
-  margin-top: -9px;
+  align-self: end;
+  margin: 0 1px 1px;
   color: var(--label-tertiary);
-  font-size: 9px;
+  font-size: 8px;
   font-variant-numeric: tabular-nums;
   transition: color 520ms linear;
+  pointer-events: none;
 }
 
-.tide-events-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 4px 6px;
+.slider-stack {
+  position: relative;
+  min-height: 44px;
+  display: grid;
 }
 
-.tide-events-heading h2 {
-  margin: 0;
-  color: var(--label);
-  font-size: 12px;
-  font-weight: 750;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
-  transition: color 520ms linear;
-}
-
-.tide-events-heading > span {
-  color: var(--label-tertiary);
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.045em;
-  text-transform: uppercase;
-  transition: color 520ms linear;
+.slider-stack .time-slider,
+.slider-stack .range-labels {
+  grid-area: 1 / 1;
 }
 
 .tide-events {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
-  gap: 5px;
-  margin-top: 0;
-  padding: 5px;
-  border-radius: 20px;
-  background: var(--surface-soft);
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border-radius: 14px;
+  background: transparent;
   transition: background-color 520ms linear;
 }
 
 .event {
   min-width: 0;
-  min-height: 76px;
+  min-height: 44px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding: 6px 2px;
+  gap: 0;
+  padding: 2px 1px;
   border: 0;
-  border-radius: 16px;
+  border-radius: 12px;
   background: transparent;
   text-align: center;
   cursor: pointer;
@@ -1647,16 +1841,16 @@ button {
 
 .event.is-active {
   color: var(--accent-strong);
-  background: white;
-  box-shadow: 0 6px 16px rgba(22, 72, 91, 0.1);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(8, 120, 185, 0.14);
 }
 
 .event-icon {
-  width: 23px;
-  height: 23px;
+  width: 14px;
+  height: 14px;
   display: grid;
   place-items: center;
-  border-radius: 9px;
+  border-radius: 5px;
   color: var(--accent);
   background: rgba(8, 120, 185, 0.09);
   font-size: 11px;
@@ -1665,9 +1859,9 @@ button {
 }
 
 .event-icon .ui-icon {
-  width: 16px;
-  height: 16px;
-  scale: 0.78;
+  width: 12px;
+  height: 12px;
+  scale: 0.58;
 }
 
 .event-icon.low {
@@ -1693,27 +1887,33 @@ button {
   max-width: 100%;
   overflow: hidden;
   color: var(--label-secondary);
-  font-size: 10px;
+  font-size: 7.5px;
   font-weight: 600;
-  letter-spacing: 0.015em;
+  line-height: 1;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   text-overflow: ellipsis;
   transition: color 520ms linear;
 }
 
 .event-copy strong {
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1.15;
+  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.05;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
 
 .event-height {
-  color: var(--label-tertiary);
-  font-size: 10px;
-  font-weight: 600;
-  transition: color 520ms linear;
+  display: none;
+}
+
+.controls-footer {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: minmax(84px, 1fr) auto;
+  align-items: center;
+  gap: 6px;
 }
 
 .forecast-button {
@@ -1722,10 +1922,10 @@ button {
   min-height: 44px;
   display: grid;
   place-items: center;
-  margin-top: 7px;
-  padding: 11px 12px 2px;
+  margin: 0;
+  padding: 11px 8px 2px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 12px;
   color: var(--label-secondary);
   background: rgba(8, 120, 185, 0.045);
   box-shadow: none;
@@ -1783,13 +1983,13 @@ button {
 
 .data-provenance {
   min-width: 0;
-  min-height: 18px;
+  min-height: 44px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
-  margin: 6px 0 -2px;
-  overflow: hidden;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 0;
+  overflow: visible;
   color: var(--label-tertiary);
   font-size: 9px;
   line-height: 1;
@@ -1851,6 +2051,12 @@ button {
 .source-badge--official:active {
   transform: scale(0.96);
   transition-duration: var(--motion-press);
+}
+
+button.source-badge--official {
+  min-width: 56px;
+  min-height: 44px;
+  padding-inline: 8px;
 }
 
 .surface-screen.phase-night .controls {
@@ -1937,7 +2143,7 @@ button {
 }
 
 .surface-screen.phase-night .tide-events {
-  background: rgba(229, 250, 252, 0.065);
+  background: transparent;
 }
 
 .surface-screen.phase-night .event.is-active {
@@ -3362,9 +3568,8 @@ button {
 .screen-stack.is-underwater .surface-screen .water-slosh,
 .screen-stack.is-underwater .surface-screen .water-spray,
 .screen-stack.is-underwater .surface-screen .water-glint,
-.screen-stack.is-underwater .surface-screen .toy-boat,
-.screen-stack.is-underwater .surface-screen .boat-ripple,
-.screen-stack.is-underwater .surface-screen .boat-lantern,
+.screen-stack.is-underwater .surface-screen .boat-25d,
+.screen-stack.is-underwater .surface-screen .coastal-birds,
 .phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .sky-cloud,
 .phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .star-field::after,
 .phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .water::before,
@@ -3376,9 +3581,8 @@ button {
 .phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .water-slosh,
 .phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .water-spray,
 .phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .water-glint,
-.phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .toy-boat,
-.phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .boat-ripple,
-.phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .boat-lantern {
+.phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .boat-25d,
+.phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .coastal-birds {
   animation-play-state: paused;
 }
 
@@ -3494,6 +3698,12 @@ a:focus-visible {
   }
 }
 
+@media (max-width: 350px) {
+  .forecast-gesture {
+    display: none;
+  }
+}
+
 @media (max-height: 740px) {
   .phone {
     min-height: 640px;
@@ -3520,7 +3730,7 @@ a:focus-visible {
   }
 
   .controls {
-    padding: 12px 14px;
+    padding: 10px 12px;
   }
 
   .time-row strong {
@@ -3528,28 +3738,24 @@ a:focus-visible {
   }
 
   .time-slider {
-    margin-top: 5px;
+    margin: 0;
   }
 
   .tide-events {
-    margin-top: 0;
+    margin: 0;
   }
 
   .event {
-    min-height: 72px;
+    min-height: 44px;
   }
 
   .forecast-button {
     min-height: 44px;
-    margin-top: 4px;
-  }
-
-  .tide-events-heading {
-    padding-bottom: 4px;
+    margin: 0;
   }
 
   .time-row {
-    margin-top: 8px;
+    margin: 0;
   }
 
   .demo-note {
@@ -3557,14 +3763,18 @@ a:focus-visible {
   }
 
   .data-provenance {
-    min-height: 16px;
-    margin-top: 3px;
+    min-height: 44px;
+    margin: 0;
   }
 
   .source-badge {
     min-height: 16px;
     padding-inline: 6px;
     font-size: 7.5px;
+  }
+
+  button.source-badge--official {
+    min-height: 44px;
   }
 
   .underwater-intro {
@@ -3744,9 +3954,13 @@ a:focus-visible {
   .water-slosh,
   .water-spray,
   .water-glint,
-  .toy-boat,
-  .boat-ripple,
-  .boat-lantern,
+  .beach-scene,
+  .shoreline-track,
+  .coastal-birds,
+  .boat-25d,
+  .boat-body,
+  .boat-reflection-layer,
+  .boat-shadow-layer,
   .bubble,
   .underwater-light,
   .screen-stack.is-underwater .seabed,

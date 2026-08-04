@@ -46,13 +46,22 @@ test("server-renders the Marée experience", async () => {
   assert.match(html, /class="water-night"/);
   assert.match(html, /class="water-slosh"/);
   assert.equal((html.match(/class="water-spray /g) ?? []).length, 3);
+  assert.match(html, /class="beach-scene"/);
+  assert.equal((html.match(/class="rivulet rivulet-/g) ?? []).length, 3);
+  assert.equal((html.match(/class="shell shell-/g) ?? []).length, 4);
+  assert.match(html, /class="coastal-birds shore-birds"/);
+  assert.match(html, /class="coastal-birds flight-birds"/);
+  assert.match(html, /class="boat-25d"/);
+  assert.equal((html.match(/src="\/art\/boat-(?:hull|sail|shadow|reflection)\.webp"/g) ?? []).length, 4);
   assert.match(html, /class="seabed"/);
   assert.equal((html.match(/class="seagrass /g) ?? []).length, 3);
   assert.match(html, /aria-label="Lecture automatique de la journée"/);
+  assert.match(html, /class="slider-stack"/);
+  assert.match(html, /class="controls-footer"/);
   assert.match(html, /Horaires des marées/);
   assert.match(html, /aria-labelledby="today-tides-title"/);
   assert.equal((html.match(/class="event /g) ?? []).length, 4);
-  assert.match(html, /Glisser vers le haut/);
+  assert.match(html, /Glisser · /);
   assert.match(html, /Afficher les prévisions des 7 prochains jours/);
   assert.match(html, /Les marées à venir/);
   assert.match(html, /<dialog[^>]*id="port-picker"/);
@@ -101,15 +110,24 @@ test("keeps the mobile experience accessible and self-contained", async () => {
   assert.match(page, /function returnToLive\(\)/);
   assert.match(page, /setIsFollowingLive\(false\)/);
   assert.match(page, /useState\(0\)/);
+  assert.match(page, /disturbanceStartedAtRef/);
+  assert.match(page, /requestAnimationFrame\(animate\)/);
+  assert.match(page, /"--beach-exposure"/);
+  assert.match(page, /data-tide-scene=\{tideScene\}/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /\.ui-icon-arrow-down::before/);
   assert.match(css, /\.ui-icon-arrow-down::after/);
   assert.match(css, /@keyframes wave-disturb-front/);
-  assert.match(css, /@keyframes boat-toss/);
+  assert.doesNotMatch(css, /@keyframes boat-(?:bob|toss)/);
+  assert.doesNotMatch(css, /\.toy-boat/);
+  assert.match(css, /\.water::before\s*\{[^}]*--wave-front-x/s);
+  assert.match(css, /\.boat-body\s*\{[^}]*--boat-roll/s);
+  assert.match(css, /\.surface-screen\.phase-night \.coastal-birds\s*\{[^}]*visibility:\s*hidden/s);
   assert.match(css, /@keyframes live-pulse/);
   assert.match(css, /\.live-button/);
-  assert.match(css, /\.tide-events-heading/);
-  assert.match(css, /\.event-copy strong\s*\{[^}]*font-size:\s*17px/s);
+  assert.match(css, /\.event\s*\{[^}]*min-height:\s*44px/s);
+  assert.match(css, /\.event-copy strong\s*\{[^}]*font-size:\s*14\.5px/s);
+  assert.match(css, /\.controls-footer/);
   assert.match(css, /\.forecast-button::before\s*\{[^}]*width:\s*34px/s);
   assert.match(css, /@keyframes seabed-arrive/);
   assert.match(css, /touch-action:\s*pan-x pinch-zoom/);
@@ -126,11 +144,14 @@ test("keeps the mobile experience accessible and self-contained", async () => {
 });
 
 test("ships an installable mobile app shell", async () => {
-  const [manifestSource, serviceWorker, offlinePage, icon] = await Promise.all([
+  const [manifestSource, serviceWorker, offlinePage, icon, ...boatLayers] = await Promise.all([
     readFile(new URL("../public/manifest.webmanifest", import.meta.url), "utf8"),
     readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
     readFile(new URL("../public/offline.html", import.meta.url), "utf8"),
     readFile(new URL("../public/icons/maree-192.png", import.meta.url)),
+    ...["hull", "sail", "shadow", "reflection"].map((layer) =>
+      readFile(new URL(`../public/art/boat-${layer}.webp`, import.meta.url)),
+    ),
   ]);
   const manifest = JSON.parse(manifestSource);
 
@@ -144,6 +165,10 @@ test("ships an installable mobile app shell", async () => {
   assert.match(serviceWorker, /url\.pathname\.startsWith\("\/api\/"\)/);
   assert.match(offlinePage, /La mer attend le réseau/);
   assert.deepEqual([...icon.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  for (const layer of boatLayers) {
+    assert.equal(layer.subarray(0, 4).toString(), "RIFF");
+    assert.equal(layer.subarray(8, 12).toString(), "WEBP");
+  }
 });
 
 test("keeps the day and night cycle continuous and bounded", () => {
