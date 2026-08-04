@@ -49,8 +49,11 @@ test("server-renders the Marée experience", async () => {
   assert.match(html, /class="seabed"/);
   assert.equal((html.match(/class="seagrass /g) ?? []).length, 3);
   assert.match(html, /aria-label="Lecture automatique de la journée"/);
+  assert.match(html, /Horaires des marées/);
+  assert.match(html, /aria-labelledby="today-tides-title"/);
   assert.equal((html.match(/class="event /g) ?? []).length, 4);
-  assert.match(html, /Voir les prochains jours/);
+  assert.match(html, /Glisser vers le haut/);
+  assert.match(html, /Afficher les prévisions des 7 prochains jours/);
   assert.match(html, /Les marées à venir/);
   assert.match(html, /<dialog[^>]*id="port-picker"/);
   assert.match(html, /<dialog[^>]*id="shom-tide-dialog"/);
@@ -90,6 +93,8 @@ test("keeps the mobile experience accessible and self-contained", async () => {
   assert.match(page, /function finishScreenSwipe/);
   assert.match(page, /setPointerCapture\(event\.pointerId\)/);
   assert.match(page, /data-no-screen-swipe/);
+  assert.match(page, /data-screen-swipe-handle/);
+  assert.match(page, /drag\.startedFromForecastHandle && deltaY <= -56/);
   assert.match(page, /new AbortController\(\)/);
   assert.match(page, /\/api\/tides\?port=/);
   assert.match(page, /ShomTideWidget/);
@@ -103,6 +108,9 @@ test("keeps the mobile experience accessible and self-contained", async () => {
   assert.match(css, /@keyframes boat-toss/);
   assert.match(css, /@keyframes live-pulse/);
   assert.match(css, /\.live-button/);
+  assert.match(css, /\.tide-events-heading/);
+  assert.match(css, /\.event-copy strong\s*\{[^}]*font-size:\s*17px/s);
+  assert.match(css, /\.forecast-button::before\s*\{[^}]*width:\s*34px/s);
   assert.match(css, /@keyframes seabed-arrive/);
   assert.match(css, /touch-action:\s*pan-x pinch-zoom/);
   assert.match(css, /@keyframes underwater-content-in/);

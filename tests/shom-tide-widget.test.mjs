@@ -31,12 +31,14 @@ test("la vignette officielle reste isolée dans une iframe sandboxée", async ()
     source,
     /\/hdm\/vignette\/grande\/\$\{encodeURIComponent\(portCode\)\}\?locale=fr/,
   );
-  assert.match(source, /srcDoc=\{buildShomWidgetDocument\(port\.code\)\}/);
+  assert.match(source, /data:text\/html;charset=utf-8,/);
+  assert.match(source, /encodeURIComponent\(buildShomWidgetDocument\(portCode\)\)/);
+  assert.match(source, /src=\{buildShomWidgetDataUrl\(port\.code\)\}/);
+  assert.doesNotMatch(source, /srcDoc=/);
   assert.match(
     source,
-    /sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"/,
+    /sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"/,
   );
-  assert.doesNotMatch(source, /allow-same-origin/);
   assert.doesNotMatch(source, /contentWindow|contentDocument|postMessage/);
   assert.match(source, /title=\{title\}/);
   assert.match(source, /aria-live="polite"/);

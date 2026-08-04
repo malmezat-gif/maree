@@ -92,6 +92,12 @@ function buildShomWidgetDocument(portCode: string) {
 </html>`;
 }
 
+function buildShomWidgetDataUrl(portCode: string) {
+  // A data: document keeps an opaque origin. SHOM can write into its own
+  // nested iframe without gaining same-origin access to the parent app.
+  return `data:text/html;charset=utf-8,${encodeURIComponent(buildShomWidgetDocument(portCode))}`;
+}
+
 export function ShomTideWidget({ portId, className }: ShomTideWidgetProps) {
   const port = SHOM_PORTS[portId];
   const [loadedPortCode, setLoadedPortCode] = useState<string | null>(null);
@@ -109,8 +115,8 @@ export function ShomTideWidget({ portId, className }: ShomTideWidgetProps) {
         <iframe
           key={port.code}
           title={title}
-          srcDoc={buildShomWidgetDocument(port.code)}
-          sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          src={buildShomWidgetDataUrl(port.code)}
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
           referrerPolicy="strict-origin-when-cross-origin"
           loading="lazy"
           onLoad={() => setLoadedPortCode(port.code)}

@@ -70,6 +70,7 @@ type ScreenDrag = {
   currentY: number;
   axis: "pending" | "vertical";
   startedUnderwater: boolean;
+  startedFromForecastHandle: boolean;
   reduceMotion: boolean;
 };
 
@@ -323,6 +324,8 @@ export default function Home() {
   const disturbanceTimerRef = useRef<number | null>(null);
   const sliderStartMinutesRef = useRef(12 * 60);
   const screenDragRef = useRef<ScreenDrag | null>(null);
+  const suppressForecastClickRef = useRef(false);
+  const forecastClickResetTimerRef = useRef<number | null>(null);
 
   const selectedPort = useMemo(
     () => ports.find((port) => port.id === selectedPortId) ?? ports[0],
@@ -652,6 +655,17 @@ export default function Home() {
     });
   }
 
+  function suppressForecastClick() {
+    suppressForecastClickRef.current = true;
+    if (forecastClickResetTimerRef.current !== null) {
+      window.clearTimeout(forecastClickResetTimerRef.current);
+    }
+    forecastClickResetTimerRef.current = window.setTimeout(() => {
+      suppressForecastClickRef.current = false;
+      forecastClickResetTimerRef.current = null;
+    }, 450);
+  }
+
   function handleScreenSwipeStart(event: React.PointerEvent<HTMLDivElement>) {
     if (
       event.pointerType !== "touch" ||
@@ -661,11 +675,11 @@ export default function Home() {
     ) return;
 
     const target = event.target as HTMLElement;
-    if (
-      target.closest(
-        "button, input, select, textarea, a, dialog, [contenteditable], [data-no-screen-swipe]",
-      )
-    ) {
+    const forecastHandle = target.closest("[data-screen-swipe-handle]");
+    const blockedTarget = target.closest(
+      "button, input, select, textarea, a, dialog, [contenteditable], [data-no-screen-swipe]",
+    );
+    if (blockedTarget && !forecastHandle) {
       return;
     }
 
@@ -686,6 +700,7 @@ export default function Home() {
       currentY: startTranslateY,
       axis: "pending",
       startedUnderwater: isUnderwater,
+      startedFromForecastHandle: Boolean(forecastHandle),
       reduceMotion,
     };
 
@@ -703,6 +718,7 @@ export default function Home() {
     if (drag.axis === "pending") {
       if (Math.hypot(deltaX, deltaY) < 10) return;
       if (Math.abs(deltaY) < Math.abs(deltaX) * 1.2) {
+        if (drag.startedFromForecastHandle) suppressForecastClick();
         screenDragRef.current = null;
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
           event.currentTarget.releasePointerCapture(event.pointerId);
@@ -746,6 +762,7 @@ export default function Home() {
       !drag.startedUnderwater &&
       (progress >= 0.28 ||
         projected >= 0.34 ||
+        (drag.startedFromForecastHandle && deltaY <= -56) ||
         (distance >= 18 && drag.velocityY <= -0.55));
     const returnedToSurface =
       !cancelled &&
@@ -762,6 +779,8 @@ export default function Home() {
     const settleDuration = drag.reduceMotion
       ? 1
       : Math.round(Math.max(220, Math.min(420, 410 - Math.abs(drag.velocityY) * 150)));
+
+    if (drag.startedFromForecastHandle && distance >= 10) suppressForecastClick();
 
     screenDragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -897,6 +916,39 @@ export default function Home() {
               </div>
 
               <section className="controls" aria-label="Explorer la marée au fil de la journée">
+                <div className="tide-events-heading">
+                  <h2 id="today-tides-title">Horaires des marées</h2>
+                  <span>Aujourd’hui</span>
+                </div>
+
+                <div className="tide-events" role="group" aria-labelledby="today-tides-title">
+                  {visibleTides.map((point) => {
+                    const isActive = minutes === point.minutes;
+                    return (
+                      <button
+                        className={`event ${isActive ? "is-active" : ""}`}
+                        key={point.minutes}
+                        type="button"
+                        onClick={() => jumpToTide(point)}
+                        aria-pressed={isActive}
+                        aria-label={`Aller à ${point.kind.toLowerCase()} à ${formatTime(point.minutes)}, hauteur ${point.height.toFixed(1)} mètres${point.coefficient === null ? "" : `, coefficient ${point.coefficient}`}`}
+                      >
+                        <span className={point.kind === "Pleine mer" ? "event-icon high" : "event-icon low"}>
+                          <Icon name={point.kind === "Pleine mer" ? "arrow-up" : "arrow-down"} />
+                        </span>
+                        <span className="event-copy">
+                          <span>{point.kind}</span>
+                          <strong>{formatTime(point.minutes)}</strong>
+                        </span>
+                        <span className="event-height">
+                          {point.height.toFixed(1).replace(".", ",")} m
+                          {point.coefficient === null ? null : <small> · {point.coefficient}</small>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
                 <div className="time-row">
                   <div>
                     <p>Heure explorée</p>
@@ -965,42 +1017,25 @@ export default function Home() {
                   <span>24:00</span>
                 </div>
 
-                <div className="tide-events">
-                  {visibleTides.map((point) => {
-                    const isActive = minutes === point.minutes;
-                    return (
-                      <button
-                        className={`event ${isActive ? "is-active" : ""}`}
-                        key={point.minutes}
-                        type="button"
-                        onClick={() => jumpToTide(point)}
-                        aria-pressed={isActive}
-                        aria-label={`Aller à ${point.kind.toLowerCase()} à ${formatTime(point.minutes)}, hauteur ${point.height.toFixed(1)} mètres${point.coefficient === null ? "" : `, coefficient ${point.coefficient}`}`}
-                      >
-                        <span className={point.kind === "Pleine mer" ? "event-icon high" : "event-icon low"}>
-                          <Icon name={point.kind === "Pleine mer" ? "arrow-up" : "arrow-down"} />
-                        </span>
-                        <span className="event-copy">
-                          <span>{point.kind}</span>
-                          <strong>{formatTime(point.minutes)}</strong>
-                        </span>
-                        <span className="event-height">
-                          {point.height.toFixed(1).replace(".", ",")} m
-                          {point.coefficient === null ? null : <small> · {point.coefficient}</small>}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
                 <button
                   ref={forecastButtonRef}
                   className="forecast-button"
                   type="button"
-                  onClick={() => showForecast()}
+                  data-screen-swipe-handle
+                  onClick={() => {
+                    if (suppressForecastClickRef.current) {
+                      suppressForecastClickRef.current = false;
+                      if (forecastClickResetTimerRef.current !== null) {
+                        window.clearTimeout(forecastClickResetTimerRef.current);
+                        forecastClickResetTimerRef.current = null;
+                      }
+                      return;
+                    }
+                    showForecast();
+                  }}
+                  aria-label="Afficher les prévisions des 7 prochains jours"
                 >
-                  <span>Voir les prochains jours</span>
-                  <span className="dive-arrow" aria-hidden="true"><Icon name="arrow-down" /></span>
+                  <span>Glisser vers le haut <small>· 7 jours</small></span>
                 </button>
                 <div className="data-provenance">
                   <span
