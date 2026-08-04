@@ -48,13 +48,19 @@ test("server-renders the Marée experience", async () => {
   assert.match(html, /class="water-slosh"/);
   assert.equal((html.match(/class="water-spray /g) ?? []).length, 3);
   assert.match(html, /class="beach-scene"/);
+  assert.match(html, /class="coast-band"/);
+  assert.match(html, /class="lighthouse"/);
+  assert.match(html, /class="lighthouse-beam"/);
+  assert.match(html, /class="beachgoers"/);
+  assert.doesNotMatch(html, /shore-foam/);
   assert.equal((html.match(/class="rivulet rivulet-/g) ?? []).length, 3);
   assert.equal((html.match(/class="shell shell-/g) ?? []).length, 4);
   assert.match(html, /class="coastal-birds shore-birds"/);
   assert.match(html, /class="coastal-birds flight-birds"/);
-  assert.match(html, /class="boat-25d"/);
-  assert.equal((html.match(/src="\/art\/boat-(?:hull|sail|shadow|reflection)-v2\.webp"/g) ?? []).length, 4);
+  assert.doesNotMatch(html, /boat|bateau/i);
   assert.match(html, /class="seabed"/);
+  assert.equal((html.match(/class="seabed-dune /g) ?? []).length, 2);
+  assert.match(html, /class="seabed-crab"/);
   assert.equal((html.match(/class="seagrass /g) ?? []).length, 3);
   assert.match(html, /aria-label="Lecture automatique de la journée"/);
   assert.match(html, /class="slider-stack"/);
@@ -119,18 +125,28 @@ test("keeps the mobile experience accessible and self-contained", async () => {
   assert.match(page, /requestAnimationFrame\(animate\)/);
   assert.doesNotMatch(page, /sceneReady|scene-pending/);
   assert.match(page, /"--beach-exposure"/);
+  assert.match(page, /"--sand-dryness"/);
+  assert.match(page, /"--visitor-presence"/);
   assert.match(page, /data-tide-scene=\{tideScene\}/);
+  assert.match(page, /data-beach-life=\{beachLife\}/);
+  assert.match(page, /data-bird-state=\{birdState\}/);
+  assert.doesNotMatch(page, /boat|bateau/i);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /\.ui-icon-arrow-down::before/);
   assert.match(css, /\.ui-icon-arrow-down::after/);
   assert.match(css, /@keyframes wave-disturb-front/);
-  assert.doesNotMatch(css, /@keyframes boat-(?:bob|toss)/);
-  assert.doesNotMatch(css, /\.toy-boat/);
+  assert.doesNotMatch(css, /boat|bateau/i);
+  assert.doesNotMatch(css, /\.water\s*\{\s*--water-shift/);
+  assert.match(css, /\.surface-screen:has\(\.water\.is-disturbed\) \.shoreline-track\s*\{[^}]*transition-duration:\s*460ms/s);
   assert.match(css, /\.water::before\s*\{[^}]*--wave-front-x/s);
-  assert.match(css, /\.boat-body\s*\{[^}]*--boat-roll/s);
-  assert.match(css, /\.boat-25d\s*\{[^}]*width:\s*104px/s);
   assert.match(css, /\.water-foam\s*\{[^}]*z-index:\s*5/s);
   assert.match(css, /\.surface-screen\.phase-night \.coastal-birds\s*\{[^}]*visibility:\s*hidden/s);
+  assert.match(css, /@keyframes lighthouse-sweep/);
+  assert.match(css, /@keyframes beachgoers-arrive/);
+  assert.match(css, /@keyframes crab-scuttle/);
+  assert.match(css, /\.underwater-light\s*\{[^}]*filter:\s*blur\(20px\)/s);
+  assert.doesNotMatch(css, /\.underwater-light\s*\{[^}]*clip-path/s);
+  assert.doesNotMatch(css, /\.seabed::before\s*\{[^}]*clip-path/s);
   assert.match(css, /@keyframes live-pulse/);
   assert.match(css, /\.live-button/);
   assert.match(css, /\.event\s*\{[^}]*min-height:\s*44px/s);
@@ -155,14 +171,11 @@ test("keeps the mobile experience accessible and self-contained", async () => {
 });
 
 test("ships an installable mobile app shell", async () => {
-  const [manifestSource, serviceWorker, offlinePage, icon, ...boatLayers] = await Promise.all([
+  const [manifestSource, serviceWorker, offlinePage, icon] = await Promise.all([
     readFile(new URL("../public/manifest.webmanifest", import.meta.url), "utf8"),
     readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
     readFile(new URL("../public/offline.html", import.meta.url), "utf8"),
     readFile(new URL("../public/icons/maree-192.png", import.meta.url)),
-    ...["hull", "sail", "shadow", "reflection"].map((layer) =>
-      readFile(new URL(`../public/art/boat-${layer}-v2.webp`, import.meta.url)),
-    ),
   ]);
   const manifest = JSON.parse(manifestSource);
 
@@ -179,10 +192,6 @@ test("ships an installable mobile app shell", async () => {
   assert.match(serviceWorker, /url\.pathname\.startsWith\("\/assets\/"\)/);
   assert.match(offlinePage, /La mer attend le réseau/);
   assert.deepEqual([...icon.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-  for (const layer of boatLayers) {
-    assert.equal(layer.subarray(0, 4).toString(), "RIFF");
-    assert.equal(layer.subarray(8, 12).toString(), "WEBP");
-  }
 });
 
 test("keeps the day and night cycle continuous and bounded", () => {

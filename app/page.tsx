@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element -- The four transparent boat layers are already optimized WebP assets; Vinext's runtime image optimizer is not available on this worker. */
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDayCycle } from "./day-cycle";
 import { ShomTideWidget, type ShomPortId } from "./shom-tide-widget";
@@ -508,12 +506,18 @@ export default function Home() {
   }, [demoTidePoints, hasLiveData, liveLevelsToday]);
   const rangeSpan = Math.max(0.5, tideRange.max - tideRange.min);
   const tideProgress = clamp((tide.height - tideRange.min) / rangeSpan);
-  const waterLevel = 20 + tideProgress * 58;
+  const waterLevel = 20 + tideProgress * 44;
   const waterShift = ((84 - waterLevel) / 84) * 100;
   const beachExposure = clamp((0.7 - tideProgress) / 0.5);
   const birdLight = clamp(1 - dayCycle.night * 2.1);
   const shoreBirdOpacity = clamp((0.46 - tideProgress) / 0.2) * birdLight;
-  const flightBirdOpacity = clamp((tideProgress - 0.48) / 0.2) * birdLight;
+  const flightBirdOpacity = clamp((tideProgress - 0.36) / 0.18) *
+    clamp((0.86 - tideProgress) / 0.18) *
+    birdLight;
+  const sandDryness = beachExposure *
+    clamp((0.76 - tideProgress) / 0.54) *
+    (tide.rising ? clamp(0.95 - tideProgress * 0.55) : 1);
+  const visitorPresence = clamp((beachExposure - 0.24) / 0.48) * birdLight;
   const tideScene = tideProgress <= 0.34
     ? "low"
     : tideProgress >= 0.66
@@ -521,6 +525,26 @@ export default function Home() {
       : tide.rising
         ? "departing"
         : "arriving";
+  const beachLife = birdLight < 0.16 || beachExposure <= 0.22
+    ? "hidden"
+    : tide.rising
+      ? "leaving"
+      : beachExposure >= 0.62
+        ? "settled"
+        : "arriving";
+  const birdState = birdLight < 0.16
+    ? "hidden"
+    : tide.rising
+      ? tideProgress >= 0.84
+        ? "hidden"
+        : tideProgress >= 0.38
+          ? "flying-out"
+          : "landed"
+      : tideProgress >= 0.82
+        ? "hidden"
+        : tideProgress >= 0.42
+          ? "flying-in"
+          : "landed";
   const scaleMaximum = Math.max(4, Math.ceil(tideRange.max));
   const levelMarkers = [1, 0.75, 0.5, 0.25].map((ratio) =>
     Math.max(1, Math.round(scaleMaximum * ratio)),
@@ -557,6 +581,8 @@ export default function Home() {
     "--water-shift": `${waterShift}%`,
     "--tide-progress": tideProgress.toFixed(3),
     "--beach-exposure": beachExposure.toFixed(3),
+    "--sand-dryness": sandDryness.toFixed(3),
+    "--visitor-presence": visitorPresence.toFixed(3),
     "--shore-birds-opacity": shoreBirdOpacity.toFixed(3),
     "--flight-birds-opacity": flightBirdOpacity.toFixed(3),
   } as React.CSSProperties;
@@ -582,10 +608,6 @@ export default function Home() {
       water.style.setProperty("--foam-x", "0%");
       water.style.setProperty("--foam-y", "0px");
       water.style.setProperty("--foam-scale", "1");
-      water.style.setProperty("--boat-heave", "0px");
-      water.style.setProperty("--boat-shadow-heave", "0px");
-      water.style.setProperty("--boat-roll", "0deg");
-      water.style.setProperty("--boat-pitch", "0deg");
     };
 
     const animate = (now: number) => {
@@ -621,14 +643,6 @@ export default function Home() {
         Math.sin(time * 1.03 + 1.7) * 0.64 +
         Math.sin(time * 1.91 + 0.2) * 0.26 +
         Math.sin(time * 0.61 + 2.8) * 0.1;
-      const boatWave =
-        Math.sin(time * 1.31 + 0.74) * 0.66 +
-        Math.sin(time * 2.17 + 1.64) * 0.24 +
-        Math.sin(time * 0.73 + 2.94) * 0.1;
-      const boatSlope =
-        Math.cos(time * 1.31 + 0.74) * 0.72 +
-        Math.cos(time * 2.17 + 1.64) * 0.28;
-
       water.style.setProperty("--wave-front-x", `${(front * 2.4 + burst * 7.5).toFixed(2)}%`);
       water.style.setProperty("--wave-front-y", `${(front * 2.2 + burst * 8.4).toFixed(2)}px`);
       water.style.setProperty("--wave-front-roll", `${(front * 0.55 + burst * 2.4).toFixed(2)}deg`);
@@ -640,10 +654,6 @@ export default function Home() {
       water.style.setProperty("--foam-x", `${(front * 1.9 + burst * 6).toFixed(2)}%`);
       water.style.setProperty("--foam-y", `${(front * -1.5 + burst * -5.8).toFixed(2)}px`);
       water.style.setProperty("--foam-scale", `${(1 + back * 0.035 + Math.abs(burst) * 0.14).toFixed(3)}`);
-      water.style.setProperty("--boat-heave", `${(boatWave * 2.4 + burst * 7.2).toFixed(2)}px`);
-      water.style.setProperty("--boat-shadow-heave", `${(boatWave * 0.45 + burst * 1.3).toFixed(2)}px`);
-      water.style.setProperty("--boat-roll", `${(boatSlope * 2.15 + burst * 6.4).toFixed(2)}deg`);
-      water.style.setProperty("--boat-pitch", `${(boatWave * -1.15 + burst * -3.1).toFixed(2)}deg`);
 
       frame = window.requestAnimationFrame(animate);
     };
@@ -960,6 +970,8 @@ export default function Home() {
             style={atmosphereStyle}
             data-tide-scene={tideScene}
             data-tide-direction={tide.rising ? "rising" : "falling"}
+            data-beach-life={beachLife}
+            data-bird-state={birdState}
             aria-hidden={isUnderwater}
             inert={isUnderwater ? true : undefined}
           >
@@ -976,10 +988,28 @@ export default function Home() {
             </div>
 
             <div className="beach-scene" aria-hidden="true">
+              <div className="coast-band">
+                <span className="coast-haze" />
+              </div>
+              <div className="beach-sand beach-sand-base" />
               <div className="beach-sand beach-sand-dry" />
               <div className="beach-sand-texture" />
               <div className="shoreline-track">
                 <span className="beach-sand-wet" />
+              </div>
+              <div className="lighthouse">
+                <span className="lighthouse-beam" />
+                <span className="lighthouse-tower" />
+                <span className="lighthouse-gallery" />
+                <span className="lighthouse-lantern" />
+                <span className="lighthouse-roof" />
+              </div>
+              <div className="beachgoers">
+                <span className="towel towel-one" />
+                <span className="towel towel-two" />
+                <span className="beachgoer person-one"><i /></span>
+                <span className="beachgoer person-two"><i /></span>
+                <span className="beachgoer person-three"><i /></span>
               </div>
               <div className="beach-rivulets">
                 <span className="rivulet rivulet-one" />
@@ -1014,14 +1044,6 @@ export default function Home() {
               <span className="water-spray spray-one" />
               <span className="water-spray spray-two" />
               <span className="water-spray spray-three" />
-              <div className="boat-25d">
-                <img className="boat-layer boat-shadow-layer" src="/art/boat-shadow-v2.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
-                <img className="boat-layer boat-reflection-layer" src="/art/boat-reflection-v2.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
-                <div className="boat-body">
-                  <img className="boat-layer boat-sail-layer" src="/art/boat-sail-v2.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
-                  <img className="boat-layer boat-hull-layer" src="/art/boat-hull-v2.webp" width="360" height="360" alt="" draggable={false} decoding="async" />
-                </div>
-              </div>
               <div className="water-glint" />
             </div>
 
@@ -1246,8 +1268,8 @@ export default function Home() {
           >
             <div className="underwater-light" aria-hidden="true" />
             <div className="seabed" aria-hidden="true">
-              <span className="sand-ridge ridge-back" />
-              <span className="sand-ridge ridge-front" />
+              <span className="seabed-dune dune-back" />
+              <span className="seabed-dune dune-front" />
               <span className="seabed-rock rock-one" />
               <span className="seabed-rock rock-two" />
               <span className="seabed-rock rock-three" />
@@ -1255,6 +1277,11 @@ export default function Home() {
               <span className="seagrass grass-two" />
               <span className="seagrass grass-three" />
               <span className="seabed-shell" />
+              <span className="seabed-crab">
+                <i className="crab-body" />
+                <i className="crab-claw crab-claw-left" />
+                <i className="crab-claw crab-claw-right" />
+              </span>
             </div>
             <div className="bubble bubble-one" aria-hidden="true" />
             <div className="bubble bubble-two" aria-hidden="true" />
