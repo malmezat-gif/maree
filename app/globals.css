@@ -2512,8 +2512,19 @@ button.source-badge--official {
   --water-deep: color-mix(in oklab, #042b40, #010a11 calc(var(--night) * 100%));
   position: relative;
   min-height: 0;
-  overflow: hidden;
-  overflow: clip;
+  /* Sortie de secours, comme pour `.interface` — et c'est ici qu'elle sert
+     réellement. Mesuré au banc (public/dev/iphone-harness.html) : cet écran perd
+     18 px sur un iPhone SE à taille de texte normale, 270 px en Dynamic Type
+     150 % et 540 px en zoom 200 %, dont la mention de licence CC BY et une part
+     des horaires. Il était en `overflow: clip`, donc ce contenu était
+     inatteignable, sans barre de défilement ni indication (WCAG 1.4.10).
+
+     `auto` et non `scroll` : un contenu qui tient ne rend pas l'élément
+     scrollable, donc le glissement vertical qui ramène à la surface continue de
+     passer au parent dans le cas ordinaire. */
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: max(26px, var(--sa-top)) 20px max(20px, var(--sa-bottom));
   color: #f2fbfd;
   background:
