@@ -362,19 +362,34 @@ function brestCoefficientsByMinute(dateKey: string): Map<number, number> {
   return byMinute;
 }
 
+/** Un coefficient rattaché à la pleine mer précise qu'il qualifie. */
+export type HarmonicCoefficient = {
+  /** Minutes depuis minuit local de la pleine mer concernée. */
+  minutes: number;
+  coefficient: number;
+};
+
 /**
  * Coefficients des pleines mers de la journée civile pour le port demandé.
  *
  * Le coefficient n'est pas recalculé localement : on reprend celui de la pleine
  * mer de Brest la plus proche dans le temps, ce qui reproduit la façon dont les
  * annuaires français rattachent une marée locale au coefficient du jour.
+ *
+ * Chaque coefficient est rendu AVEC la minute de la marée qu'il qualifie, et
+ * c'est essentiel : la version précédente rendait un simple `number[]` dont les
+ * pleines mers sans correspondance étaient absentes, et l'appelant le
+ * consommait par position. Une seule marée non appariée décalait donc tous les
+ * coefficients suivants d'un cran — un chiffre faux, sur la mauvaise marée,
+ * étiqueté « calculé ». Apparier par minute rend ce décalage impossible à
+ * exprimer.
  */
 export function predictCoefficients(
   port: HarmonicPort,
   dateKey: string,
-): number[] {
+): HarmonicCoefficient[] {
   const brest = brestCoefficientsByMinute(dateKey);
-  const coefficients: number[] = [];
+  const coefficients: HarmonicCoefficient[] = [];
 
   for (const extremum of predictExtrema(port, dateKey)) {
     if (extremum.kind !== "Pleine mer") continue;
@@ -392,7 +407,7 @@ export function predictCoefficients(
     }
 
     if (best !== null && bestDistance <= COEFFICIENT_MATCH_TOLERANCE_MIN) {
-      coefficients.push(best);
+      coefficients.push({ minutes: extremum.minutes, coefficient: best });
     }
   }
 

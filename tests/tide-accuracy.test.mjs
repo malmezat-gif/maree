@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { predictExtrema, predictLevels } from "../lib/harmonic-tides.ts";
+import { predictCoefficients, predictExtrema, predictLevels } from "../lib/harmonic-tides.ts";
 
 /**
  * Justesse des horaires — le seul endroit qui vérifie que l'heure affichée est
@@ -81,5 +81,53 @@ describe("justesse des horaires de marée", () => {
     assert.equal(points("2026-08-12"), 144, "jour ordinaire — 24 h");
     assert.equal(points("2026-03-29"), 138, "jour de 23 h");
     assert.equal(points("2026-10-25"), 150, "jour de 25 h");
+  });
+
+  test("un coefficient est toujours attaché à sa propre pleine mer", () => {
+    // La version précédente rendait un `number[]` dont les pleines mers sans
+    // correspondance étaient simplement absentes, et l'appelant lisait ce
+    // tableau par position : une marée non appariée décalait toutes les
+    // suivantes d'un cran. Le coefficient affiché était alors celui de la marée
+    // d'à côté, sous l'étiquette « calculé ».
+    //
+    // L'invariant qui rend ce décalage inexprimable : chaque coefficient porte
+    // la minute de la marée qu'il qualifie, et cette minute est celle d'une
+    // vraie pleine mer du jour.
+    const ports = [
+      "biarritz",
+      "saint-jean-de-luz",
+      "capbreton",
+      "arcachon",
+      "la-rochelle",
+      "les-sables",
+      "brest",
+      "saint-malo",
+    ];
+
+    let verifies = 0;
+    for (const port of ports) {
+      for (let jour = 0; jour < 40; jour += 1) {
+        const dateKey = new Date(Date.UTC(2026, 7, 1 + jour)).toISOString().slice(0, 10);
+
+        const pleinesMers = new Set(
+          predictExtrema(port, dateKey)
+            .filter((e) => e.kind === "Pleine mer" && e.minutes >= 0 && e.minutes < 1440)
+            .map((e) => e.minutes),
+        );
+
+        for (const entree of predictCoefficients(port, dateKey)) {
+          assert.ok(
+            pleinesMers.has(entree.minutes),
+            `${port} ${dateKey} : coefficient ${entree.coefficient} rattaché à ${entree.minutes} min, qui n'est pas une pleine mer du jour`,
+          );
+          assert.ok(
+            entree.coefficient >= 20 && entree.coefficient <= 120,
+            `${port} ${dateKey} : coefficient ${entree.coefficient} hors de l'échelle 20-120`,
+          );
+          verifies += 1;
+        }
+      }
+    }
+    assert.ok(verifies > 400, `échantillon trop maigre : ${verifies} coefficients`);
   });
 });

@@ -139,12 +139,14 @@ function buildTidePoints(portId: ShomPortId, dateKey: string, port: Port): TideP
   // négatives ou ≥ 1440), qui ne servent qu'à interpoler la courbe, restent
   // sans coefficient.
   const coefficients = predictCoefficients(portId, dateKey);
-  let highTideIndex = 0;
   return predictExtrema(portId, dateKey).map((point) => {
     const withinDay = point.minutes >= 0 && point.minutes < 1440;
+    // Rattachement par minute, jamais par position : une pleine mer sans
+    // coefficient doit rester sans coefficient, pas emprunter celui de sa
+    // voisine.
     const coefficient =
       point.kind === "Pleine mer" && withinDay
-        ? coefficients[highTideIndex++] ?? null
+        ? coefficients.find((entry) => entry.minutes === point.minutes)?.coefficient ?? null
         : null;
     return {
       minutes: point.minutes,
