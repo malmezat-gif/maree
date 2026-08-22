@@ -1,100 +1,105 @@
-# vinext-starter
+# Marée
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Horaires et coefficients de marée pour huit ports de la côte atlantique, avec une
+scène côtière qui suit l'heure du jour et le niveau de l'eau.
 
-## Prerequisites
+**En ligne : https://maree-2mo.pages.dev**
 
-- Node.js `>=22.13.0`
+PWA installable. Une fois posée sur l'écran d'accueil, elle fonctionne sans
+réseau : les marées sont calculées sur l'appareil, pas récupérées.
 
-## Quick Start
+## Prendre la main
 
 ```bash
 npm install
-npm run dev
-npm run build
+npm run dev      # http://localhost:3000
+npm test         # build puis suite de tests
+npm run deploy   # build et publication sur Cloudflare Pages
 ```
 
-This starter does not use `wrangler.jsonc`.
+Node ≥ 22.13. Aucune clé d'API n'est nécessaire.
 
-## Included Shape
+## Où vit ce projet, et pourquoi
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+`~/dossier sans titre/maree` — un dossier ordinaire, sous git, sans lien avec
+aucun outil.
 
-## Workspace Auth Headers
+Il a d'abord vécu dans `~/.codex/.chatgpt-projects/…/marees`. C'était un miroir
+d'un projet ChatGPT, et son propre `AGENTS.md` prévenait que les fichiers
+pouvaient être remplacés à la création de la tâche suivante. Le 20 août 2026 ils
+l'ont été : dix-sept jours de travail et tout l'historique git local ont disparu
+d'un coup, parce que le dépôt distant, lui, s'était arrêté au 4 août.
 
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
+Ce qui a sauvé le projet, c'est que le site déployé était intact. Le prédicteur
+harmonique a été relu dans le bundle compilé et revalidé contre des dates dont
+on connaissait le rendu réel ; la feuille de style a été réconciliée règle par
+règle contre le CSS de production. Le dossier actuel est le résultat, vérifié :
+le rendu serveur est identique à la production, caractère pour caractère.
 
-The user ID is stable for the same user on the same Site and different across Sites. Email and name are intended for display or contact purposes.
+**Ne remets pas ce projet sous `~/.codex/`.** C'est la seule règle qui compte
+ici.
 
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
+## Déploiement
 
-Treat the full name as optional and fall back to email when it is absent:
+Cloudflare Pages, projet `maree`, en envoi direct — pas d'intégration git, donc
+rien à connecter et rien qui puisse se désynchroniser. `npm run deploy` construit
+et publie. L'authentification est celle de wrangler, déjà en place.
 
-```tsx
-import { headers } from "next/headers";
+Le script assemble le bundle dans `_deploy/` puis publie depuis un dossier
+temporaire : Pages ne lit `wrangler.jsonc` que dans le répertoire courant, et un
+fichier de config à la racine serait aussi ramassé par l'outillage de dev.
 
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
+## Données
 
-  const displayName = fullName ?? email;
-  // ...
-}
-```
+Prédiction harmonique hors-ligne, via `@neaps/tide-predictor` et les constantes
+**TICON-4** extraites de la base [Neaps](https://github.com/openwatersio/tide-database)
+(CC BY 4.0, usage commercial autorisé, datum LAT). 50 composantes par port,
+21,7 Ko de JSON embarqué dans `lib/harmonics/stations.json`.
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Deux pièges qui ont coûté du temps et qu'il ne faut pas refaire :
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+- Les constantes sont référencées au **niveau moyen**, les tables françaises au
+  **zéro hydrographique**. La conversion passe par l'option `offset` du
+  prédicteur, pas par une addition à la main.
+- Le **coefficient** se calcule toujours à Brest — c'est une grandeur nationale.
+  L'unité `U = 3,05 m` est la valeur officielle du SHOM, mais le niveau moyen
+  doit venir du **datum de la station TICON**, pas des 4,03 m publiés : les
+  hauteurs produites sont référencées à cette verticale-là. Mesuré sur les 706
+  pleines mers de 2026, le datum station donne min 21 / moyenne 69,2, contre min
+  27 / moyenne 74,9 pour la valeur SHOM — pour une échelle dont le minimum est 20
+  et la moyenne 70.
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+C'est de la prédiction **astronomique seule**, sans surcote météo, et ce ne sont
+pas les tables officielles. D'où l'étiquette « Calculé » et le lien SHOM
+conservés partout, et la mention « non destinées à la navigation ».
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+## Ce qu'il faut savoir avant de toucher au code
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+**La mise en page ne se fie pas aux unités de viewport.** Sur un iPhone
+installé, `innerHeight` renvoie 873 sur un écran de 932 et la page est décalée de
+59. `app/viewport-fit.tsx` mesure la vraie hauteur
+(`max(innerHeight, visualViewport.height + offsetTop)`) et l'écrit dans
+`--app-height`, que `html`, `body`, `.app-stage` et `.phone` prennent **ensemble**
+— `body` étant en `overflow: hidden`, agrandir `.phone` seul ne servirait à rien.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+**`viewport-fit=cover` est injecté par le Worker**, dans la réponse. vinext écrit
+la balise lui-même et supprime `viewportFit`, et la poser depuis un script après
+coup ne marche pas : Safari ne lit cette clé qu'au parse initial.
 
-## Useful Commands
+**Le thème sombre suit `.is-dark`** (`dayCycle.night >= 0.32`), pas le nom de la
+phase : « crépuscule » commence à 17:00 en plein jour. La scène est pilotée par
+des variables numériques posées sur `.screen-stack`.
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+**Les tests mesurent, ils ne lisent pas.** `tests/rendering.test.mjs` pilote
+Chrome et vérifie des rectangles et des pixels, parce que plusieurs bugs réels
+sont passés à travers des assertions sur le source. Ne remplace jamais une
+mesure par une lecture de feuille de style. Et ne code jamais en dur quatre
+marées par jour : une journée civile en contient trois ou quatre.
 
-## Learn More
+## État
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+Reconstruit et vérifié le 21 août 2026. Restent à restaurer, perdus dans
+l'incident : `tests/rendering.test.mjs`, `tests/tide-accuracy.test.mjs`,
+`tests/icon-fingerprints.test.mjs`, le banc d'essai iPhone
+(`public/dev/iphone-harness.html`) et les scripts `build-sw-precache.mjs` et
+`fingerprint-icons.mjs`.

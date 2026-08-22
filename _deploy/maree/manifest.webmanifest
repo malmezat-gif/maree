@@ -1,0 +1,34 @@
+{
+  "id": "/",
+  "name": "Marée — La mer au fil du temps",
+  "short_name": "Marée",
+  "description": "Consultez et explorez les marées depuis votre téléphone.",
+  "lang": "fr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#e8f5f6",
+  "theme_color": "#075f90",
+  "categories": ["weather", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/maree-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maree-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maree-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
