@@ -1331,6 +1331,26 @@ button {
   height: 100%;
   display: flex;
   flex-direction: column;
+  /* Sortie de secours quand le contenu ne tient plus : Dynamic Type au-delà de
+     150 %, zoom à 200 %, ou simplement un iPhone SE, où le bas de l'écran
+     dépasse déjà de 18 px à taille de texte normale. Tout était en
+     `overflow: hidden` avec une hauteur bornée, donc le panneau de contrôle —
+     curseur horaire et horaires du jour — sortait de l'écran sans aucun moyen
+     de l'atteindre.
+
+     `auto` plutôt que `scroll` parce qu'un élément dont le contenu tient n'est
+     pas scrollable du tout : le glissement vertical qui change d'écran continue
+     donc de passer au parent dans le cas normal, et ne se fait capturer que
+     lorsqu'il y a réellement quelque chose à révéler.
+
+     ⚠ NON VÉRIFIÉ SUR APPAREIL. Le banc d'essai iPhone qui aurait permis de le
+     contrôler à insets injectés a été perdu le 20 août. Dans le navigateur, la
+     hauteur mesurée par ViewportFit (720) et `innerHeight` (667) divergent, ce
+     qui rend le cas de débordement inobservable ici. La règle est correcte en
+     principe et sans effet quand le contenu tient ; elle reste à valider une
+     fois le banc reconstruit. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: max(24px, var(--sa-top)) 22px max(18px, var(--sa-bottom));
   opacity: 1;
   transition: opacity 220ms ease-out;
