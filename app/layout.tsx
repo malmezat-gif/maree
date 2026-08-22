@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 import { PwaRegistration } from "./pwa-registration";
+import { ViewportFit } from "./viewport-fit";
 
 const title = "Marée — La mer au fil du temps";
 const description =
@@ -67,6 +68,7 @@ export default function RootLayout({
     <html lang="fr">
       <body>
         {children}
+        <ViewportFit />
         <PwaRegistration />
       </body>
     </html>

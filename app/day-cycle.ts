@@ -27,8 +27,14 @@ export function getDayCycle(minutes: number): DayCycle {
   const dawn = Math.exp(-Math.pow((normalized - 390) / 95, 2));
   const dusk = Math.exp(-Math.pow((normalized - 1110) / 95, 2));
   const twilight = clamp(Math.max(dawn, dusk));
-  const daylight = clamp(sunAltitude * 1.05 + twilight * 0.18);
-  const night = clamp(1 - daylight - twilight * 0.35);
+  // Le plateau de jour est atteint bien avant le zénith : `sunAltitude * 3.2`
+  // saturé donne une pleine lumière dès que le soleil est franchement levé, et
+  // la nuit se creuse symétriquement. Les deux ne sont donc PAS complémentaires
+  // — `night` n'est pas `1 - daylight` — et c'est voulu : le crépuscule doit
+  // pouvoir être à la fois peu lumineux et pas encore nocturne.
+  const solar = clamp(sunAltitude * 3.2);
+  const daylight = clamp(solar * 0.96 + twilight * 0.1);
+  const night = clamp(1 - solar - twilight * 0.5);
   const moonMinutes = normalized < 1080 ? normalized + 1440 : normalized;
   const moonProgress = clamp((moonMinutes - 1080) / 720);
   const moonlight = Math.sin(moonProgress * Math.PI) * night;
@@ -55,8 +61,8 @@ export function getDayCycle(minutes: number): DayCycle {
     twilight,
     moonlight,
     sunX: 7 + sunProgress * 86,
-    sunY: 70 - sunAltitude * 57,
+    sunY: 42 - sunAltitude * 35,
     moonX: 8 + moonProgress * 84,
-    moonY: 63 - Math.sin(moonProgress * Math.PI) * 48,
+    moonY: 42 - Math.sin(moonProgress * Math.PI) * 32,
   };
 }

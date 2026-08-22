@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDayCycle } from "./day-cycle";
 import { ShomTideWidget, type ShomPortId } from "./shom-tide-widget";
+import { isHarmonicPort, predictCoefficients, predictExtrema, harmonicStationName, HARMONIC_SOURCE } from "@/lib/harmonic-tides";
 
 type TidePoint = {
   minutes: number;
@@ -57,7 +58,12 @@ type TidesPayload = {
   levels: TideApiLevel[];
 };
 
-type TideLoadState = "loading" | "live" | "demo";
+type TideLoadState = "loading" | "live" | "demo" | "unavailable";
+
+type ShoreMotion = {
+  kind: "arriving" | "leaving";
+  id: number;
+};
 
 type ScreenDrag = {
   pointerId: number;
@@ -96,14 +102,81 @@ const ports: Port[] = [
 
 const coefficientDeltas = [0, -4, -10, -17, -24, -30, -35];
 
+const waterLevelMin = 33;
+const waterLevelSpan = 13;
+const highMarkTop = 100 - (waterLevelMin + waterLevelSpan);
+const lowMarkTop = 100 - waterLevelMin;
+
 type IconName = "waves" | "chevron" | "arrow-up" | "arrow-down" | "play" | "pause" | "search" | "check";
 
 function clamp(value: number, minimum = 0, maximum = 1) {
   return Math.max(minimum, Math.min(maximum, value));
 }
 
+function springEasing(distance: number, velocity: number, duration: number) {
+  if (Math.abs(distance) < 1) return null;
+  const initialVelocity = clamp((velocity * duration) / distance, -3, 14);
+  const curve = (progress: number) =>
+    1 - (1 + (8 - initialVelocity) * progress) * Math.exp(-8 * progress);
+  const normalizer = curve(1);
+  if (!Number.isFinite(normalizer) || normalizer <= 0) return null;
+  const stops: string[] = [];
+  for (let step = 0; step <= 24; step += 1) {
+    stops.push((curve(step / 24) / normalizer).toFixed(4));
+  }
+  return `linear(${stops.join(", ")})`;
+}
+
 function Icon({ name, className = "" }: { name: IconName; className?: string }) {
   return <span className={`ui-icon ui-icon-${name} ${className}`.trim()} aria-hidden="true" />;
+}
+
+function buildTidePoints(portId: ShomPortId, dateKey: string, port: Port): TidePoint[] {
+  if (!isHarmonicPort(portId)) return buildDemoTidePoints(port);
+  // `predictCoefficients` ne rend que les coefficients des pleines mers de la
+  // journée civile, dans l'ordre où `predictExtrema` les produit : on les
+  // rattache donc par position. Les pleines mers débordant du jour (minutes
+  // négatives ou ≥ 1440), qui ne servent qu'à interpoler la courbe, restent
+  // sans coefficient.
+  const coefficients = predictCoefficients(portId, dateKey);
+  let highTideIndex = 0;
+  return predictExtrema(portId, dateKey).map((point) => {
+    const withinDay = point.minutes >= 0 && point.minutes < 1440;
+    const coefficient =
+      point.kind === "Pleine mer" && withinDay
+        ? coefficients[highTideIndex++] ?? null
+        : null;
+    return {
+      minutes: point.minutes,
+      height: point.heightM,
+      kind: point.kind,
+      coefficient,
+    };
+  });
+}
+
+function buildForecast(
+  portId: ShomPortId,
+  startDate: Date,
+  port: Port,
+  demoVisibleTides: TidePoint[],
+): ForecastDay[] {
+  if (!isHarmonicPort(portId)) return buildDemoForecast(startDate, port, demoVisibleTides);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + index);
+    const tides = buildTidePoints(portId, localDateKey(date), port).filter(
+      (point) => point.minutes >= 0 && point.minutes < 1440,
+    );
+    return {
+      date,
+      coefficients: tides
+        .map((point) => point.coefficient)
+        .filter((coefficient): coefficient is number => coefficient !== null),
+      tides,
+    };
+  });
 }
 
 function buildDemoTidePoints(port: Port): TidePoint[] {
@@ -126,12 +199,14 @@ function buildDemoTidePoints(port: Port): TidePoint[] {
       minutes: first.minutes - (second.minutes - first.minutes),
       height: second.height,
       kind: second.kind,
+      coefficient: second.coefficient,
     },
     ...core,
     {
       minutes: last.minutes + (last.minutes - penultimate.minutes),
       height: penultimate.height,
       kind: penultimate.kind,
+      coefficient: penultimate.coefficient,
     },
   ];
 }
@@ -241,7 +316,7 @@ function getLiveTideAt(
 
   return {
     height,
-    rising: end.height >= start.height,
+    rising: next.kind === "Pleine mer",
     next,
     minutesUntilNext: Math.max(0, next.minutes - minutes),
   };
@@ -262,6 +337,10 @@ function formatTime(minutes: number) {
   return `${hours.toString().padStart(2, "0")}:${mins
     .toString()
     .padStart(2, "0")}`;
+}
+
+function formatHeight(value: number) {
+  return value.toFixed(1).replace(".", ",");
 }
 
 function formatDuration(minutes: number) {
@@ -310,7 +389,7 @@ function getTideAt(minutes: number, tidePoints: TidePoint[]) {
 
   return {
     height,
-    rising: end.height > start.height,
+    rising: end.kind === "Pleine mer",
     next: end,
     minutesUntilNext: Math.max(0, end.minutes - minutes),
   };
@@ -334,6 +413,7 @@ export default function Home() {
   const [tideAnnouncement, setTideAnnouncement] = useState(
     "Connexion à la source de marée…",
   );
+  const [shoreMotion, setShoreMotion] = useState<ShoreMotion | null>(null);
   const portDialogRef = useRef<HTMLDialogElement>(null);
   const shomDialogRef = useRef<HTMLDialogElement>(null);
   const portSearchRef = useRef<HTMLInputElement>(null);
@@ -346,6 +426,8 @@ export default function Home() {
   const waterRef = useRef<HTMLDivElement>(null);
   const disturbanceTimerRef = useRef<number | null>(null);
   const disturbanceStartedAtRef = useRef<number | null>(null);
+  const shoreMotionTimerRef = useRef<number | null>(null);
+  const shoreMotionIdRef = useRef(0);
   const sliderStartMinutesRef = useRef(12 * 60);
   const screenDragRef = useRef<ScreenDrag | null>(null);
   const suppressForecastClickRef = useRef(false);
@@ -356,27 +438,27 @@ export default function Home() {
     [selectedPortId],
   );
   const currentDateKey = localDateKey(currentDate);
-  const demoTidePoints = useMemo(
-    () => buildDemoTidePoints(selectedPort),
-    [selectedPort],
+  const localTidePoints = useMemo(
+    () => buildTidePoints(selectedPortId, currentDateKey, selectedPort),
+    [currentDateKey, selectedPort, selectedPortId],
   );
-  const demoVisibleTides = useMemo(
-    () => demoTidePoints.filter((point) => point.minutes >= 0 && point.minutes < 1440),
-    [demoTidePoints],
+  const localVisibleTides = useMemo(
+    () => localTidePoints.filter((point) => point.minutes >= 0 && point.minutes < 1440),
+    [localTidePoints],
   );
-  const demoForecast = useMemo(
-    () => buildDemoForecast(currentDate, selectedPort, demoVisibleTides),
-    [currentDate, selectedPort, demoVisibleTides],
+  const localForecast = useMemo(
+    () => buildForecast(selectedPortId, currentDate, selectedPort, localVisibleTides),
+    [currentDate, selectedPort, selectedPortId, localVisibleTides],
   );
   const liveForecast = useMemo(
     () => (tidesPayload ? buildLiveForecast(tidesPayload) : null),
     [tidesPayload],
   );
   const hasLiveData = tideLoadState === "live" && liveForecast !== null;
-  const forecast = hasLiveData ? liveForecast : demoForecast;
+  const forecast = hasLiveData ? liveForecast : localForecast;
   const visibleTides = hasLiveData && forecast[0]?.tides.length
     ? forecast[0].tides
-    : demoVisibleTides;
+    : localVisibleTides;
   const liveLevelsToday = useMemo(
     () =>
       hasLiveData
@@ -385,14 +467,14 @@ export default function Home() {
     [currentDateKey, hasLiveData, tidesPayload],
   );
   const eventTimeline = useMemo(() => {
-    if (!hasLiveData) return demoTidePoints;
+    if (!hasLiveData) return localTidePoints;
     const todayEvents = forecast[0]?.tides ?? [];
     const tomorrowEvents = (forecast[1]?.tides ?? []).map((point) => ({
       ...point,
       minutes: point.minutes + 1440,
     }));
     return [...todayEvents, ...tomorrowEvents];
-  }, [demoTidePoints, forecast, hasLiveData]);
+  }, [localTidePoints, forecast, hasLiveData]);
   const filteredPorts = useMemo(() => {
     const query = normalizeSearch(portQuery);
     if (!query) return ports;
@@ -459,11 +541,19 @@ export default function Home() {
       } catch (error) {
         if (controller.signal.aborted) return;
         setTidesPayload(null);
-        setTideLoadState("demo");
+        const unconfigured =
+          error instanceof Error && error.message === "service_unconfigured";
+        const keyRejected =
+          error instanceof Error && error.message === "service_key_rejected";
+        setTideLoadState(unconfigured ? "demo" : "unavailable");
         setTideAnnouncement(
-          error instanceof Error && error.message === "service_unconfigured"
-            ? "Animation en mode exemple. Les horaires officiels SHOM sont disponibles."
-            : "Source animée momentanément indisponible. Les horaires officiels SHOM restent disponibles.",
+          isHarmonicPort(selectedPortId)
+            ? `Horaires calculés sur l’appareil à partir des constantes harmoniques de ${harmonicStationName(selectedPortId)}. Les horaires officiels SHOM restent disponibles.`
+            : unconfigured
+              ? "Horaires fictifs : aucune source de marée n’est configurée. Les horaires officiels SHOM sont disponibles."
+              : keyRejected
+                ? "Horaires fictifs : la source de marée refuse la clé de ce déploiement. Les horaires officiels SHOM restent disponibles."
+                : "Horaires fictifs : la source de marée est momentanément indisponible. Les horaires officiels SHOM restent disponibles.",
         );
       }
     }
@@ -475,7 +565,7 @@ export default function Home() {
       if (selectedPortId === "capbreton") {
         setTideLoadState("demo");
         setTideAnnouncement(
-          "Animation en mode exemple pour Capbreton. Les horaires officiels SHOM sont disponibles.",
+          `Horaires calculés sur l’appareil à partir des constantes harmoniques de ${harmonicStationName("capbreton")}. Les horaires officiels SHOM restent disponibles.`,
         );
         return;
       }
@@ -504,6 +594,9 @@ export default function Home() {
       if (disturbanceTimerRef.current !== null) {
         window.clearTimeout(disturbanceTimerRef.current);
       }
+      if (shoreMotionTimerRef.current !== null) {
+        window.clearTimeout(shoreMotionTimerRef.current);
+      }
     },
     [],
   );
@@ -512,30 +605,26 @@ export default function Home() {
     () =>
       (hasLiveData
         ? getLiveTideAt(minutes, liveLevelsToday, eventTimeline)
-        : null) ?? getTideAt(minutes, demoTidePoints),
-    [demoTidePoints, eventTimeline, hasLiveData, liveLevelsToday, minutes],
+        : null) ?? getTideAt(minutes, localTidePoints),
+    [localTidePoints, eventTimeline, hasLiveData, liveLevelsToday, minutes],
   );
   const dayCycle = useMemo(() => getDayCycle(minutes), [minutes]);
   const tideRange = useMemo(() => {
     const heights = hasLiveData && liveLevelsToday.length
       ? liveLevelsToday.map((point) => point.heightM)
-      : demoTidePoints.map((point) => point.height);
+      : localTidePoints.map((point) => point.height);
     return { min: Math.min(...heights), max: Math.max(...heights) };
-  }, [demoTidePoints, hasLiveData, liveLevelsToday]);
+  }, [localTidePoints, hasLiveData, liveLevelsToday]);
   const rangeSpan = Math.max(0.5, tideRange.max - tideRange.min);
   const tideProgress = clamp((tide.height - tideRange.min) / rangeSpan);
-  const waterLevel = 20 + tideProgress * 44;
+  const waterLevel = waterLevelMin + tideProgress * waterLevelSpan;
   const waterShift = ((84 - waterLevel) / 84) * 100;
-  const beachExposure = clamp((0.7 - tideProgress) / 0.5);
+  const beachExposure = clamp((0.92 - tideProgress) / 0.72);
+  const isDarkScene = dayCycle.night >= 0.32;
   const birdLight = clamp(1 - dayCycle.night * 2.1);
-  const shoreBirdOpacity = clamp((0.46 - tideProgress) / 0.2) * birdLight;
-  const flightBirdOpacity = clamp((tideProgress - 0.36) / 0.18) *
-    clamp((0.86 - tideProgress) / 0.18) *
-    birdLight;
-  const sandDryness = beachExposure *
-    clamp((0.76 - tideProgress) / 0.54) *
+  const sandDryness = clamp((0.82 - tideProgress) / 0.6) *
     (tide.rising ? clamp(0.95 - tideProgress * 0.55) : 1);
-  const visitorPresence = clamp((beachExposure - 0.24) / 0.48) * birdLight;
+  const visitorPresence = clamp(0.35 + beachExposure * 0.65) * birdLight;
   const tideScene = tideProgress <= 0.34
     ? "low"
     : tideProgress >= 0.66
@@ -563,28 +652,31 @@ export default function Home() {
         : tideProgress >= 0.42
           ? "flying-in"
           : "landed";
-  const scaleMaximum = Math.max(4, Math.ceil(tideRange.max));
-  const levelMarkers = [1, 0.75, 0.5, 0.25].map((ratio) =>
-    Math.max(1, Math.round(scaleMaximum * ratio)),
-  );
   const today = new Intl.DateTimeFormat("fr-FR", {
     weekday: "long",
     day: "numeric",
     month: "long",
   }).format(currentDate);
   const activeForecast = forecast[selectedDay] ?? forecast[0];
-  const coefficientEvent = eventTimeline.find(
-    (point) =>
-      point.kind === "Pleine mer" &&
-      point.coefficient !== null &&
-      point.minutes >= minutes,
+  const coefficientEvents = eventTimeline.filter(
+    (point) => point.kind === "Pleine mer" && point.coefficient !== null,
   );
-  const currentCoefficient = coefficientEvent?.coefficient ?? null;
+  const currentCoefficient =
+    (
+      coefficientEvents.find((point) => point.minutes >= minutes) ??
+      coefficientEvents[coefficientEvents.length - 1]
+    )?.coefficient ?? null;
+  const harmonicStation = isHarmonicPort(selectedPortId)
+    ? harmonicStationName(selectedPortId)
+    : null;
+  const isComputed = !hasLiveData && harmonicStation !== null;
   const sourceLabel = tideLoadState === "live"
     ? "api-maree.fr"
     : tideLoadState === "loading"
       ? "Connexion…"
-      : "Données d’exemple";
+      : isComputed
+        ? "Calculé"
+        : "Horaires fictifs";
   const atmosphereStyle = {
     "--daylight": dayCycle.daylight.toFixed(3),
     "--night": dayCycle.night.toFixed(3),
@@ -601,9 +693,24 @@ export default function Home() {
     "--beach-exposure": beachExposure.toFixed(3),
     "--sand-dryness": sandDryness.toFixed(3),
     "--visitor-presence": visitorPresence.toFixed(3),
-    "--shore-birds-opacity": shoreBirdOpacity.toFixed(3),
-    "--flight-birds-opacity": flightBirdOpacity.toFixed(3),
   } as React.CSSProperties;
+
+  useEffect(() => {
+    const night = dayCycle.night;
+    const twilight = dayCycle.twilight;
+    const mix = (day: number, dusk: number, dark: number) =>
+      Math.round(day * (1 - night - twilight * 0.5) + dusk * twilight * 0.5 + dark * night);
+    const skyColor = `rgb(${mix(168, 196, 10)}, ${mix(207, 150, 23)}, ${mix(224, 150, 48)})`;
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", skyColor);
+
+    const blend = (light: number[], dark: number[]) =>
+      `rgb(${light.map((channel, index) => Math.round(channel + (dark[index] - channel) * night)).join(", ")})`;
+    const groundColor = isUnderwater
+      ? blend([189, 160, 111], [98, 90, 77])
+      : blend([10, 80, 116], [6, 34, 58]);
+    document.documentElement.style.backgroundColor = groundColor;
+    document.body.style.backgroundColor = groundColor;
+  }, [dayCycle.night, dayCycle.twilight, isUnderwater]);
 
   useEffect(() => {
     const water = waterRef.current;
@@ -615,14 +722,6 @@ export default function Home() {
     const frameInterval = 1000 / 30;
 
     const setCalmPose = () => {
-      water.style.setProperty("--wave-front-x", "0%");
-      water.style.setProperty("--wave-front-y", "0px");
-      water.style.setProperty("--wave-front-roll", "0deg");
-      water.style.setProperty("--wave-front-scale", "1");
-      water.style.setProperty("--wave-back-x", "0%");
-      water.style.setProperty("--wave-back-y", "0px");
-      water.style.setProperty("--wave-back-roll", "0deg");
-      water.style.setProperty("--wave-back-scale", "1");
       water.style.setProperty("--foam-x", "0%");
       water.style.setProperty("--foam-y", "0px");
       water.style.setProperty("--foam-scale", "1");
@@ -653,25 +752,12 @@ export default function Home() {
         Math.sin(disturbanceAge * 47 + 0.8) * 0.26
       );
 
-      const front =
-        Math.sin(time * 1.31) * 0.68 +
-        Math.sin(time * 2.17 + 0.9) * 0.23 +
-        Math.sin(time * 0.73 + 2.2) * 0.09;
-      const back =
-        Math.sin(time * 1.03 + 1.7) * 0.64 +
-        Math.sin(time * 1.91 + 0.2) * 0.26 +
-        Math.sin(time * 0.61 + 2.8) * 0.1;
-      water.style.setProperty("--wave-front-x", `${(front * 2.4 + burst * 7.5).toFixed(2)}%`);
-      water.style.setProperty("--wave-front-y", `${(front * 2.2 + burst * 8.4).toFixed(2)}px`);
-      water.style.setProperty("--wave-front-roll", `${(front * 0.55 + burst * 2.4).toFixed(2)}deg`);
-      water.style.setProperty("--wave-front-scale", `${(1 + front * 0.075 + Math.abs(burst) * 0.19).toFixed(3)}`);
-      water.style.setProperty("--wave-back-x", `${(back * -3 + burst * -6.8).toFixed(2)}%`);
-      water.style.setProperty("--wave-back-y", `${(back * 1.8 + burst * -6.5).toFixed(2)}px`);
-      water.style.setProperty("--wave-back-roll", `${(back * -0.62 + burst * -2.1).toFixed(2)}deg`);
-      water.style.setProperty("--wave-back-scale", `${(1 + back * 0.07 + Math.abs(burst) * 0.16).toFixed(3)}`);
-      water.style.setProperty("--foam-x", `${(front * 1.9 + burst * 6).toFixed(2)}%`);
-      water.style.setProperty("--foam-y", `${(front * -1.5 + burst * -5.8).toFixed(2)}px`);
-      water.style.setProperty("--foam-scale", `${(1 + back * 0.035 + Math.abs(burst) * 0.14).toFixed(3)}`);
+      const swell =
+        Math.sin(time * 0.92) * 0.72 +
+        Math.sin(time * 1.47 + 1.4) * 0.28;
+      water.style.setProperty("--foam-x", `${(swell * 0.8 + burst * 2.8).toFixed(2)}%`);
+      water.style.setProperty("--foam-y", `${(swell * -1.2 + burst * -3.2).toFixed(2)}px`);
+      water.style.setProperty("--foam-scale", `${(1 + swell * 0.012 + Math.abs(burst) * 0.055).toFixed(3)}`);
 
       frame = window.requestAnimationFrame(animate);
     };
@@ -725,11 +811,40 @@ export default function Home() {
     }, 1050);
   }
 
+  function triggerShoreMotion(kind: ShoreMotion["kind"], atMinutes: number) {
+    if (
+      getDayCycle(atMinutes).phase === "night" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setShoreMotion(null);
+      return;
+    }
+
+    shoreMotionIdRef.current += 1;
+    setShoreMotion({ kind, id: shoreMotionIdRef.current });
+
+    if (shoreMotionTimerRef.current !== null) {
+      window.clearTimeout(shoreMotionTimerRef.current);
+    }
+    shoreMotionTimerRef.current = window.setTimeout(() => {
+      setShoreMotion(null);
+      shoreMotionTimerRef.current = null;
+    }, 1550);
+  }
+
+  function signalShoreMotionAt(atMinutes: number) {
+    const tideAt =
+      (hasLiveData ? getLiveTideAt(atMinutes, liveLevelsToday, eventTimeline) : null) ??
+      getTideAt(atMinutes, localTidePoints);
+    triggerShoreMotion(tideAt.rising ? "leaving" : "arriving", atMinutes);
+  }
+
   function jumpToTide(point: TidePoint) {
     setIsPlaying(false);
     setIsFollowingLive(false);
     setMinutes(point.minutes);
     agitateWater();
+    triggerShoreMotion(point.kind === "Basse mer" ? "arriving" : "leaving", point.minutes);
   }
 
   function returnToLive() {
@@ -741,7 +856,10 @@ export default function Home() {
     setMinutes(parisClock.minutes);
     setSelectedDay(0);
     setCurrentDate(parisClock.date);
-    if (Math.min(difference, 1440 - difference) >= 30) agitateWater();
+    if (Math.min(difference, 1440 - difference) >= 30) {
+      agitateWater();
+      signalShoreMotionAt(parisClock.minutes);
+    }
   }
 
   function openPortPicker(focusSearch = false) {
@@ -812,10 +930,12 @@ export default function Home() {
     }
   }
 
-  function resetScreenDrag(duration = 360) {
+  function resetScreenDrag(duration = 360, easing: string | null = null) {
     const stack = screenStackRef.current;
     if (!stack) return;
     stack.style.setProperty("--screen-settle-duration", `${duration}ms`);
+    if (easing) stack.style.setProperty("--screen-settle-easing", easing);
+    else stack.style.removeProperty("--screen-settle-easing");
     window.requestAnimationFrame(() => {
       stack.classList.remove("is-dragging");
       stack.style.removeProperty("--drag-position");
@@ -948,6 +1068,10 @@ export default function Home() {
     const settleDuration = drag.reduceMotion
       ? 1
       : Math.round(Math.max(220, Math.min(420, 410 - Math.abs(drag.velocityY) * 150)));
+    const settleTarget = nextUnderwater ? -phoneHeight : 0;
+    const settleEasing = drag.reduceMotion
+      ? null
+      : springEasing(settleTarget - currentY, drag.velocityY, settleDuration);
 
     if (
       drag.startedFromForecastHandle &&
@@ -966,7 +1090,7 @@ export default function Home() {
       if (nextUnderwater) showForecast(false);
       else hideForecast(false);
     }
-    resetScreenDrag(settleDuration);
+    resetScreenDrag(settleDuration, settleEasing);
   }
 
   return (
@@ -975,19 +1099,22 @@ export default function Home() {
         <div
           ref={screenStackRef}
           className={isUnderwater ? "screen-stack is-underwater" : "screen-stack"}
+          style={atmosphereStyle}
           onPointerDown={handleScreenSwipeStart}
           onPointerMove={handleScreenSwipeMove}
           onPointerUp={(event) => finishScreenSwipe(event)}
           onPointerCancel={(event) => finishScreenSwipe(event, true)}
-          onLostPointerCapture={(event) => finishScreenSwipe(event, true)}
+          onLostPointerCapture={(event) => {
+            if (event.target === event.currentTarget) finishScreenSwipe(event, true);
+          }}
         >
           <section
-            className={`surface-screen phase-${dayCycle.phase} scene-ready${isPlaying ? " is-playing" : ""}`}
-            style={atmosphereStyle}
+            className={`surface-screen phase-${dayCycle.phase} scene-ready${isDarkScene ? " is-dark" : ""}${isPlaying ? " is-playing" : ""}`}
             data-tide-scene={tideScene}
             data-tide-direction={tide.rising ? "rising" : "falling"}
             data-beach-life={beachLife}
             data-bird-state={birdState}
+            data-shore-motion={shoreMotion?.kind ?? "idle"}
             aria-hidden={isUnderwater}
             inert={isUnderwater ? true : undefined}
           >
@@ -1000,10 +1127,46 @@ export default function Home() {
               <span className="celestial moon" />
               <span className="sky-cloud cloud-one" />
               <span className="sky-cloud cloud-two" />
+              <div className="sky-flock">
+                <span className="sky-bird" />
+                <span className="sky-bird" />
+                <span className="sky-bird" />
+                <span className="sky-bird" />
+                <span className="sky-bird" />
+              </div>
+              <div className="sky-flock sky-flock-far">
+                <span className="sky-bird" />
+                <span className="sky-bird" />
+                <span className="sky-bird" />
+              </div>
+              <span className="sky-cloud cloud-three" />
               <div className="horizon-haze" />
             </div>
 
             <div className="beach-scene" aria-hidden="true">
+              <div className="far-sea" />
+              <div className="coast-lights">
+                <div className="lighthouse">
+                  <span className="lighthouse-beam beam-left" />
+                  <span className="lighthouse-beam beam-right" />
+                  <span className="lighthouse-glare" />
+                  <span className="lighthouse-lamp" />
+                </div>
+                <div className="dune-houses">
+                  <span className="house-window window-one" />
+                  <span className="house-window window-two" />
+                  <span className="house-window window-three" />
+                  <span className="house-window window-four" />
+                  <span className="house-window window-five" />
+                  <span className="house-window window-six" />
+                  <span className="house-window window-seven" />
+                  <span className="house-window window-eight" />
+                  <span className="house-window window-nine" />
+                  <span className="house-smoke" />
+                  <span className="house-smoke" />
+                </div>
+              </div>
+              <div className="coast-bluff" />
               <div className="coast-band">
                 <span className="coast-haze" />
               </div>
@@ -1013,19 +1176,10 @@ export default function Home() {
               <div className="shoreline-track">
                 <span className="beach-sand-wet" />
               </div>
-              <div className="lighthouse">
-                <span className="lighthouse-beam" />
-                <span className="lighthouse-tower" />
-                <span className="lighthouse-gallery" />
-                <span className="lighthouse-lantern" />
-                <span className="lighthouse-roof" />
-              </div>
               <div className="beachgoers">
-                <span className="towel towel-one" />
-                <span className="towel towel-two" />
-                <span className="beachgoer person-one"><i /></span>
-                <span className="beachgoer person-two"><i /></span>
-                <span className="beachgoer person-three"><i /></span>
+                <span className="parasol parasol-one"><i /></span>
+                <span className="parasol parasol-two"><i /></span>
+                <span className="parasol parasol-three"><i /></span>
               </div>
               <div className="beach-rivulets">
                 <span className="rivulet rivulet-one" />
@@ -1037,10 +1191,6 @@ export default function Home() {
                 <span className="shell shell-two" />
                 <span className="shell shell-three" />
                 <span className="shell shell-four" />
-              </div>
-              <div className="coastal-birds shore-birds">
-                <span className="shore-bird bird-one"><i /></span>
-                <span className="shore-bird bird-two"><i /></span>
               </div>
             </div>
 
@@ -1063,19 +1213,20 @@ export default function Home() {
               <div className="water-glint" />
             </div>
 
-            <div className="coastal-birds flight-birds" aria-hidden="true">
-              <span className="flight-bird bird-one" />
-              <span className="flight-bird bird-two" />
-              <span className="flight-bird bird-three" />
+            <div className="tide-marks" aria-hidden="true">
+              <span className="tide-mark tide-mark-high" style={{ "--at": `${highMarkTop}%` } as React.CSSProperties}>
+                <span className="tide-mark-label">Pleine mer</span>
+                <span className="tide-mark-value">{formatHeight(tideRange.max)} m</span>
+              </span>
+              <span className="tide-mark tide-mark-low" style={{ "--at": `${lowMarkTop}%` } as React.CSSProperties}>
+                <span className="tide-mark-label">Basse mer</span>
+                <span className="tide-mark-value">{formatHeight(tideRange.min)} m</span>
+              </span>
             </div>
 
             <div className="interface">
               <header className="topbar">
                 <div>
-                  <div className="brand">
-                    <span className="brand-mark" aria-hidden="true"><Icon name="waves" /></span>
-                    <span>Marée</span>
-                  </div>
                   <button
                     ref={locationButtonRef}
                     className="location"
@@ -1094,13 +1245,13 @@ export default function Home() {
                   aria-label={
                     currentCoefficient === null
                       ? "Coefficient de la prochaine pleine mer indisponible"
-                      : `Coefficient ${hasLiveData ? "estimé" : "d’exemple"} de la prochaine pleine mer : ${currentCoefficient}`
+                      : `Coefficient ${hasLiveData ? "estimé" : isComputed ? "calculé" : "fictif"} de la prochaine pleine mer : ${currentCoefficient}`
                   }
                 >
                   <span>Coef.</span>
                   <strong className="coefficient-value">{currentCoefficient ?? "—"}</strong>
                   <small className="coefficient-caption">
-                    {hasLiveData ? "estimé" : "exemple"}
+                    {hasLiveData ? "estimé" : isComputed ? "calculé" : "fictif"}
                   </small>
                 </div>
               </header>
@@ -1108,29 +1259,19 @@ export default function Home() {
               <section className="tide-reading">
                 <p className="date">
                   <span>{today}</span>
-                  <span className="day-phase">
-                    <span className="phase-orb" aria-hidden="true" />
-                    {dayCycle.label}
-                  </span>
                 </p>
                 <p className="direction">
                   <Icon name="arrow-up" className={tide.rising ? "arrow rising" : "arrow falling"} />
                   Marée {tide.rising ? "montante" : "descendante"}
                 </p>
                 <h1>
-                  <span className="height-value">{tide.height.toFixed(1).replace(".", ",")}</span>
+                  <span className="height-value">{formatHeight(tide.height)}</span>
                   <span className="height-unit">m</span>
                 </h1>
                 <p className="next-tide">
                   {tide.next.kind} dans {formatDuration(tide.minutesUntilNext)}
                 </p>
               </section>
-
-              <div className="level-marker" aria-hidden="true">
-                {levelMarkers.map((marker, index) => (
-                  <span key={`${marker}-${index}`}>{marker} m</span>
-                ))}
-              </div>
 
               <section className="controls" aria-label="Explorer la marée au fil de la journée">
                 <div className="time-row">
@@ -1180,14 +1321,17 @@ export default function Home() {
                     max="1439"
                     step="1"
                     value={minutes}
-                    aria-valuetext={`${formatTime(minutes)}, ${dayCycle.label.toLowerCase()}, hauteur ${tide.height.toFixed(1).replace(".", ",")} mètres, marée ${tide.rising ? "montante" : "descendante"}`}
+                    aria-valuetext={`${formatTime(minutes)}, ${dayCycle.label.toLowerCase()}, hauteur ${formatHeight(tide.height)} mètres, marée ${tide.rising ? "montante" : "descendante"}`}
                     onPointerDown={() => {
                       sliderStartMinutesRef.current = minutes;
                     }}
                     onPointerUp={(event) => {
                       const value = Number(event.currentTarget.value);
                       const difference = Math.abs(value - sliderStartMinutesRef.current);
-                      if (Math.min(difference, 1440 - difference) >= 75) agitateWater();
+                      if (Math.min(difference, 1440 - difference) >= 75) {
+                        agitateWater();
+                        signalShoreMotionAt(value);
+                      }
                     }}
                     onChange={(event) => {
                       setIsPlaying(false);
@@ -1203,8 +1347,30 @@ export default function Home() {
                   </div>
                 </div>
 
-                <h2 id="today-tides-title" className="sr-only">Horaires des marées aujourd’hui</h2>
-                <div className="tide-events" role="group" aria-labelledby="today-tides-title">
+                <h2 id="today-tides-title" className="sr-only">
+                  {hasLiveData
+                    ? "Horaires des marées aujourd’hui"
+                    : isComputed
+                      ? "Horaires des marées aujourd’hui, calculés à partir des constantes harmoniques"
+                      : "Horaires des marées aujourd’hui — horaires fictifs de démonstration"}
+                </h2>
+                {hasLiveData || isComputed || tideLoadState === "loading" ? null : (
+                  <p className="fiction-notice">
+                    <span aria-hidden="true" className="fiction-notice-mark" />
+                    Horaires fictifs —{" "}
+                    {tideLoadState === "unavailable"
+                      ? "source indisponible"
+                      : "aucune source configurée"}
+                  </p>
+                )}
+                <div
+                  className="tide-events"
+                  role="group"
+                  aria-labelledby="today-tides-title"
+                  data-fiction={
+                    hasLiveData || isComputed || tideLoadState === "loading" ? undefined : "true"
+                  }
+                >
                   {visibleTides.map((point) => {
                     const isActive = minutes === point.minutes;
                     return (
@@ -1214,7 +1380,7 @@ export default function Home() {
                         type="button"
                         onClick={() => jumpToTide(point)}
                         aria-pressed={isActive}
-                        aria-label={`Aller à ${point.kind.toLowerCase()} à ${formatTime(point.minutes)}, hauteur ${point.height.toFixed(1)} mètres${point.coefficient === null ? "" : `, coefficient ${point.coefficient}`}`}
+                        aria-label={`${hasLiveData || isComputed ? "" : "Horaire fictif. "}Aller à ${point.kind.toLowerCase()} à ${formatTime(point.minutes)}, hauteur ${point.height.toFixed(1)} mètres${point.coefficient === null ? "" : `, coefficient ${point.coefficient}`}`}
                       >
                         <span className={point.kind === "Pleine mer" ? "event-icon high" : "event-icon low"}>
                           <Icon name={point.kind === "Pleine mer" ? "arrow-up" : "arrow-down"} />
@@ -1224,7 +1390,7 @@ export default function Home() {
                           <strong>{formatTime(point.minutes)}</strong>
                         </span>
                         <span className="event-height">
-                          {point.height.toFixed(1).replace(".", ",")} m
+                          {formatHeight(point.height)} m
                           {point.coefficient === null ? null : <small> · {point.coefficient}</small>}
                         </span>
                       </button>
@@ -1255,7 +1421,7 @@ export default function Home() {
                   </button>
                   <div className="data-provenance">
                     <span
-                      className={`source-badge ${hasLiveData ? "source-badge--live" : "source-badge--demo"}`}
+                      className={`source-note ${!hasLiveData && !isComputed && tideLoadState !== "loading" ? "source-note--fiction" : ""}`}
                     >
                       {sourceLabel}
                     </span>
@@ -1283,16 +1449,9 @@ export default function Home() {
             inert={!isUnderwater ? true : undefined}
           >
             <div className="underwater-light" aria-hidden="true" />
+            <span className="water-drift" aria-hidden="true" />
             <div className="seabed" aria-hidden="true">
-              <span className="seabed-dune dune-back" />
-              <span className="seabed-dune dune-front" />
-              <span className="seabed-rock rock-one" />
-              <span className="seabed-rock rock-two" />
-              <span className="seabed-rock rock-three" />
-              <span className="seagrass grass-one" />
-              <span className="seagrass grass-two" />
-              <span className="seagrass grass-three" />
-              <span className="seabed-shell" />
+              <span className="seabed-caustics" />
               <span className="seabed-crab">
                 <i className="crab-body" />
                 <i className="crab-claw crab-claw-left" />
@@ -1315,15 +1474,10 @@ export default function Home() {
               </button>
               <div>
                 <p>Prévisions</p>
-                <h2>{selectedPort.name}</h2>
+                <h2 id="forecast-section-title">{selectedPort.name}</h2>
               </div>
               <span className="forecast-depth">7 jours</span>
             </header>
-
-            <div className="underwater-intro">
-              <p>Plongeons un peu plus loin</p>
-              <h3 id="forecast-section-title">Les marées à venir</h3>
-            </div>
 
             <div className="calendar" role="group" aria-label="Choisir un jour" data-no-screen-swipe>
               {forecast.map((day, index) => (
@@ -1334,7 +1488,7 @@ export default function Home() {
                   onClick={() => setSelectedDay(index)}
                   aria-pressed={selectedDay === index}
                   aria-current={index === 0 ? "date" : undefined}
-                  aria-label={`${new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" }).format(day.date)}, coefficient ${hasLiveData ? "estimé" : "d’exemple"} ${coefficientsLabel(day.coefficients)}`}
+                  aria-label={`${new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" }).format(day.date)}, coefficient ${hasLiveData ? "estimé" : isComputed ? "calculé" : "fictif"} ${coefficientsLabel(day.coefficients)}`}
                 >
                   <span>{index === 0 ? "Auj." : new Intl.DateTimeFormat("fr-FR", { weekday: "short" }).format(day.date).replace(".", "")}</span>
                   <strong>{day.date.getDate()}</strong>
@@ -1343,15 +1497,33 @@ export default function Home() {
               ))}
             </div>
 
+            <div className="forecast-spacer" aria-hidden="true" />
+
+            {hasLiveData || isComputed || tideLoadState === "loading" ? null : (
+              <p className="fiction-notice fiction-notice-forecast">
+                <span aria-hidden="true" className="fiction-notice-mark" />
+                Horaires fictifs sur les sept jours —{" "}
+                {tideLoadState === "unavailable"
+                  ? "source indisponible"
+                  : "aucune source configurée"}
+              </p>
+            )}
+
             <section className="forecast-card">
-              <div className="forecast-card-content" key={activeForecast.date.toISOString()}>
+              <div
+                className="forecast-card-content"
+                key={activeForecast.date.toISOString()}
+                data-fiction={
+                  hasLiveData || isComputed || tideLoadState === "loading" ? undefined : "true"
+                }
+              >
               <div className="forecast-card-heading">
                 <div>
                   <p>{new Intl.DateTimeFormat("fr-FR", { weekday: "long" }).format(activeForecast.date)}</p>
                   <h4>{new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long" }).format(activeForecast.date)}</h4>
                 </div>
                 <div className="forecast-coef">
-                  <span>Coef. {hasLiveData ? "estimé" : "exemple"}</span>
+                  <span>Coef. {hasLiveData ? "estimé" : isComputed ? "calculé" : "fictif"}</span>
                   <strong>{coefficientsLabel(activeForecast.coefficients)}</strong>
                 </div>
               </div>
@@ -1367,7 +1539,7 @@ export default function Home() {
                       <strong>{formatTime(point.minutes)}</strong>
                     </div>
                     <span>
-                      {point.height.toFixed(1).replace(".", ",")} m
+                      {formatHeight(point.height)} m
                       {point.coefficient === null ? null : <small> · coef. {point.coefficient}</small>}
                     </span>
                   </div>
@@ -1375,6 +1547,8 @@ export default function Home() {
               </div>
               </div>
             </section>
+
+            <div className="forecast-spacer" aria-hidden="true" />
 
             <button
               className="official-shom-panel"
@@ -1396,10 +1570,19 @@ export default function Home() {
               Prévisions pour {new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long" }).format(activeForecast.date)}, coefficient {coefficientsLabel(activeForecast.coefficients)}
             </p>
 
-            <p className="underwater-note">
-              {hasLiveData ? "Données api-maree.fr · " : "Animation avec données d’exemple · "}
-              Prévisions indicatives — non destinées à la navigation
-            </p>
+            <div className="underwater-note">
+              <p>
+                {hasLiveData
+                  ? "Données api-maree.fr · "
+                  : isComputed
+                    ? `Calculé pour ${harmonicStation} · `
+                    : "Horaires fictifs · "}
+                Prévisions indicatives — non destinées à la navigation
+              </p>
+              {isComputed ? (
+                <p className="source-credit">{HARMONIC_SOURCE.attribution}</p>
+              ) : null}
+            </div>
           </section>
         </div>
 
