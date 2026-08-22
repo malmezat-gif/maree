@@ -131,13 +131,25 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
   return <span className={`ui-icon ui-icon-${name} ${className}`.trim()} aria-hidden="true" />;
 }
 
+/**
+ * La prédiction harmonique a-t-elle réellement produit de quoi tracer une marée ?
+ *
+ * `getTideAt` interpole entre deux extrema et suppose donc d'en avoir deux. Avec
+ * zéro ou un — constantes dégénérées, fenêtre de calcul corrompue, station
+ * modifiée — l'accès au point suivant jetait, et l'utilisateur obtenait l'écran
+ * d'erreur générique de Next : pas d'horaire, pas d'étiquette, pas de français.
+ * Mieux vaut la courbe de démonstration, à condition qu'elle soit annoncée comme
+ * fictive ; c'est pourquoi `isComputed` consulte la même fonction.
+ */
+function harmonicIsUsable(portId: ShomPortId, dateKey: string): boolean {
+  if (!isHarmonicPort(portId)) return false;
+  return predictExtrema(portId, dateKey).length >= 2;
+}
+
 function buildTidePoints(portId: ShomPortId, dateKey: string, port: Port): TidePoint[] {
-  if (!isHarmonicPort(portId)) return buildDemoTidePoints(port);
-  // `predictCoefficients` ne rend que les coefficients des pleines mers de la
-  // journée civile, dans l'ordre où `predictExtrema` les produit : on les
-  // rattache donc par position. Les pleines mers débordant du jour (minutes
-  // négatives ou ≥ 1440), qui ne servent qu'à interpoler la courbe, restent
-  // sans coefficient.
+  if (!harmonicIsUsable(portId, dateKey)) return buildDemoTidePoints(port);
+  // Les pleines mers débordant du jour (minutes négatives ou ≥ 1440), qui ne
+  // servent qu'à interpoler la courbe, restent sans coefficient.
   const coefficients = predictCoefficients(portId, dateKey);
   return predictExtrema(portId, dateKey).map((point) => {
     const withinDay = point.minutes >= 0 && point.minutes < 1440;
@@ -671,7 +683,11 @@ export default function Home() {
   const harmonicStation = isHarmonicPort(selectedPortId)
     ? harmonicStationName(selectedPortId)
     : null;
-  const isComputed = !hasLiveData && harmonicStation !== null;
+  // Le port est harmonique ET le calcul a abouti. Sans la seconde condition,
+  // une prédiction dégénérée s'afficherait sous l'étiquette « calculé » alors
+  // que ce sont les chiffres de démonstration qui seraient à l'écran.
+  const isComputed =
+    !hasLiveData && harmonicStation !== null && harmonicIsUsable(selectedPortId, currentDateKey);
   const sourceLabel = tideLoadState === "live"
     ? "api-maree.fr"
     : tideLoadState === "loading"

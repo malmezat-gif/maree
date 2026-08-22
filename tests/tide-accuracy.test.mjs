@@ -130,4 +130,33 @@ describe("justesse des horaires de marée", () => {
     }
     assert.ok(verifies > 400, `échantillon trop maigre : ${verifies} coefficients`);
   });
+
+  test("le prédicteur donne toujours de quoi interpoler — le garde-fou reste dormant", () => {
+    // getTideAt interpole entre deux extrema. Le garde-fou de buildTidePoints
+    // bascule sur la courbe de démonstration en dessous de deux, mais ce chemin
+    // ne peut pas être atteint par un test sans injecter un prédicteur truqué :
+    // ce test vérifie donc que la condition ne se produit jamais aujourd'hui, et
+    // sert d'alarme si une modification des constantes la rendait atteignable.
+    const ports = [
+      "biarritz",
+      "saint-jean-de-luz",
+      "capbreton",
+      "arcachon",
+      "la-rochelle",
+      "les-sables",
+      "brest",
+      "saint-malo",
+    ];
+
+    for (const port of ports) {
+      for (let jour = 0; jour < 60; jour += 1) {
+        const dateKey = new Date(Date.UTC(2026, 0, 1 + jour * 6)).toISOString().slice(0, 10);
+        const total = predictExtrema(port, dateKey).length;
+        assert.ok(
+          total >= 2,
+          `${port} ${dateKey} : ${total} extremum — getTideAt ne peut plus interpoler`,
+        );
+      }
+    }
+  });
 });

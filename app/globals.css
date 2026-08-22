@@ -4491,3 +4491,81 @@ a:focus-visible {
 .port-dialog h3 {
   text-wrap: balance;
 }
+
+/* Écran de dernier recours (app/error.tsx). Volontairement autonome : il doit
+   s'afficher même si ce qui a cassé est la scène elle-même, donc il n'emprunte
+   aucune variable du cycle jour/nuit. */
+.app-error {
+  min-height: var(--app-height, 100svh);
+  display: grid;
+  place-items: center;
+  padding: max(24px, var(--sa-top)) 20px max(24px, var(--sa-bottom));
+  background: linear-gradient(180deg, #0a3a52 0%, #05202f 100%);
+  color: #eaf5f8;
+}
+
+.app-error-card {
+  max-width: 32rem;
+  display: grid;
+  gap: 14px;
+  padding: 26px 22px;
+  border-radius: 22px;
+  background: rgba(6, 34, 48, 0.72);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.app-error-eyebrow {
+  margin: 0;
+  color: #8fd0e2;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.app-error h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.app-error p {
+  margin: 0;
+  color: rgba(226, 243, 248, 0.86);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+
+.app-error-note {
+  color: rgba(226, 243, 248, 0.66) !important;
+  font-size: 0.8125rem !important;
+}
+
+.app-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.app-error-actions button,
+.app-error-actions a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 18px;
+  border: 1px solid rgba(180, 226, 240, 0.28);
+  border-radius: 999px;
+  color: #eaf5f8;
+  background: rgba(143, 208, 226, 0.14);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.app-error-actions button {
+  border-color: rgba(180, 226, 240, 0.5);
+  background: rgba(143, 208, 226, 0.26);
+}
