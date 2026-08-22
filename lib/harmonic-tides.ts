@@ -214,9 +214,71 @@ function parisMidnight(dateKey: string): Date {
   return new Date(candidate);
 }
 
-function minutesSince(origin: Date, instant: Date): number {
-  return Math.round((instant.getTime() - origin.getTime()) / MINUTE_MS);
+/**
+ * Minutes depuis minuit local, telles qu'une horloge de Paris les afficherait.
+ *
+ * Ce n'est PAS la durée écoulée depuis minuit, et la nuance est tout le sujet :
+ * les deux coïncident 363 jours par an, puis divergent d'une heure les deux
+ * jours de bascule. Rendre la durée écoulée revenait à afficher 08:13 pour un
+ * instant qui, à Paris, était 09:13 — toutes les marées d'après la bascule
+ * fausses de soixante minutes, sans le moindre signe.
+ *
+ * L'heure est donc lue dans le fuseau plutôt que déduite d'une soustraction.
+ * `origin` sert seulement à décider de quel jour relève l'instant, pour que les
+ * voisines hors journée civile gardent des minutes négatives ou > 1440.
+ */
+/** Le jour civil suivant, en clé `AAAA-MM-JJ`. */
+function nextDateKey(dateKey: string): string {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
 }
+
+function minutesSince(origin: Date, instant: Date): number {
+  const jourDeLOrigine = parisDayNumber(origin);
+  const jourDeLInstant = parisDayNumber(instant);
+  const parts = parisParts(instant);
+  return (
+    (jourDeLInstant - jourDeLOrigine) * DAY_MINUTES +
+    parts.hour * 60 +
+    parts.minute +
+    Math.round(parts.second / 60)
+  );
+}
+
+/** Les champs d'horloge de Paris pour un instant donné. */
+function parisParts(instant: Date): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+  const champs: Record<string, string> = {};
+  for (const part of PARIS_FORMAT.formatToParts(instant)) {
+    if (part.type !== "literal") champs[part.type] = part.value;
+  }
+  return {
+    year: Number(champs.year),
+    month: Number(champs.month),
+    day: Number(champs.day),
+    // Intl rend « 24 » plutôt que « 00 » pour minuit avec hourCycle h23 sur
+    // certaines versions d'ICU ; ramené ici pour que 24:00 soit 00:00.
+    hour: Number(champs.hour) % 24,
+    minute: Number(champs.minute),
+    second: Number(champs.second),
+  };
+}
+
+/** Numéro de jour absolu dans le calendrier de Paris, pour comparer deux dates. */
+function parisDayNumber(instant: Date): number {
+  const { year, month, day } = parisParts(instant);
+  return Math.round(Date.UTC(year, month - 1, day) / (DAY_MINUTES * MINUTE_MS));
+}
+
+const PARIS_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TIMEZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
 
 /**
  * Pleines et basses mers du jour, en minutes depuis minuit local.
@@ -255,7 +317,11 @@ export function predictLevels(
   dateKey: string,
 ): HarmonicLevel[] {
   const midnight = parisMidnight(dateKey);
-  const end = new Date(midnight.getTime() + DAY_MINUTES * MINUTE_MS);
+  // Minuit du lendemain, pas « minuit + 24 h ». Une journée civile fait 23 ou
+  // 25 heures les jours de bascule, et une fenêtre fixe de 24 h débordait donc
+  // l'une et tronquait l'autre — la courbe de l'eau et le curseur horaire s'en
+  // trouvaient décalés le jour même où les horaires l'étaient aussi.
+  const end = parisMidnight(nextDateKey(dateKey));
 
   return predictorFor(port)
     .getTimelinePrediction({
