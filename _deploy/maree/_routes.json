@@ -1,8 +1,0 @@
-{
-  "version": 1,
-  "include": ["/*"],
-  "exclude": ["/assets/*", "/icons/*", "/sw.js", "/manifest.webmanifest",
-              "/offline.html", "/offline",
-              "/apple-touch-icon-v2.png", "/og.png",
-              "/file.svg", "/globe.svg", "/window.svg"]
-}

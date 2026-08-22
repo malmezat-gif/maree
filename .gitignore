@@ -41,3 +41,9 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# build de deploiement, regenere par npm run deploy
+/_deploy/
+
+# secrets de dev Cloudflare (non couvert par .env*)
+.dev.vars
