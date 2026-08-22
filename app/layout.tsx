@@ -66,6 +66,23 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fr">
+      <head>
+        {/* Le décor de la côte est très probablement l'élément LCP, et il n'est
+            référencé que par un `background-image` dans la feuille de style :
+            le préchargeur du navigateur ne peut pas le découvrir avant d'avoir
+            téléchargé et analysé tout le CSS. Ce lien lui fait gagner cet
+            aller-retour.
+
+            Le fond marin n'est délibérément pas préchargé : il ne devient
+            visible qu'après un glissement vers les prévisions, et l'y ajouter
+            reviendrait à imposer ses 82 Ko à toutes les sessions. */}
+        <link
+          rel="preload"
+          as="image"
+          type="image/webp"
+          href="/assets/coast/coast-v3.webp"
+        />
+      </head>
       <body>
         {children}
         <ViewportFit />

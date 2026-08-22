@@ -716,7 +716,10 @@ button {
 
 .far-sea {
   z-index: 1;
-  will-change: filter;
+  /* `will-change: filter` permanent retiré : il maintenait un calque
+     compositeur résident pour un raster de 1400x1446 pendant toute la session,
+     alors que le filtre ne bouge que sur une transition de 420 ms au gré du
+     cycle jour/nuit — que les moteurs promeuvent déjà d'eux-mêmes. */
   aspect-ratio: 1400 / 1446;
   width: 116%;
   filter: var(--coast-shade);
@@ -3938,7 +3941,15 @@ button.source-badge--official {
 .screen-stack.is-underwater .surface-screen .water-spray,
 .screen-stack.is-underwater .surface-screen .water-glint,
 .screen-stack.is-underwater .surface-screen .lighthouse-beam,
-.screen-stack.is-underwater .surface-screen .sky-bird {
+.screen-stack.is-underwater .surface-screen .sky-bird,
+/* `animation-play-state` ne s'hérite pas. Le battement d'ailes est déclaré sur
+   les pseudo-éléments et la fumée sur .house-smoke : mettre .sky-bird en pause
+   arrêtait le vol en travers mais laissait 16 paires d'ailes battre à 620 ms et
+   2 panaches tourner, indéfiniment, pendant que l'utilisateur est sur les
+   prévisions et ne voit rien de tout cela. */
+.screen-stack.is-underwater .surface-screen .sky-bird::before,
+.screen-stack.is-underwater .surface-screen .sky-bird::after,
+.screen-stack.is-underwater .surface-screen .house-smoke {
   animation-play-state: paused;
 }
 
@@ -3990,6 +4001,9 @@ button.source-badge--official {
   animation-play-state: paused;
 }
 
+.phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .sky-bird::before,
+.phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .sky-bird::after,
+.phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .house-smoke,
 .phone:has(:is(.port-dialog, .shom-dialog)[open]) .surface-screen .sky-bird {
   animation-play-state: paused;
 }
