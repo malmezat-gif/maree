@@ -50,18 +50,27 @@ test("server-renders the Marée experience", async () => {
   assert.match(html, /class="beach-scene"/);
   assert.match(html, /class="coast-band"/);
   assert.match(html, /class="lighthouse"/);
-  assert.match(html, /class="lighthouse-beam"/);
+  // Le phare a été réécrit : un seul faisceau est devenu deux, gauche et
+  // droite, pour que la rotation s'éteigne sur la moitié arrière du tour au lieu
+  // d'osciller comme un essuie-glace.
+  assert.match(html, /class="lighthouse-beam beam-left"/);
+  assert.match(html, /class="lighthouse-beam beam-right"/);
   assert.match(html, /class="beachgoers"/);
   assert.doesNotMatch(html, /shore-foam/);
   assert.equal((html.match(/class="rivulet rivulet-/g) ?? []).length, 3);
   assert.equal((html.match(/class="shell shell-/g) ?? []).length, 4);
-  assert.match(html, /class="coastal-birds shore-birds"/);
-  assert.match(html, /class="coastal-birds flight-birds"/);
+  // Les oiseaux de rive et de vol ont été remplacés par deux vols dans le ciel,
+  // un proche et un lointain, qui traversent l'écran au lieu de rester posés.
+  assert.match(html, /class="sky-flock"/);
+  assert.match(html, /class="sky-flock sky-flock-far"/);
+  assert.match(html, /class="sky-bird"/);
   assert.doesNotMatch(html, /boat|bateau/i);
   assert.match(html, /class="seabed"/);
-  assert.equal((html.match(/class="seabed-dune /g) ?? []).length, 2);
+  // Les dunes, rochers et coquillages du fond marin sont désormais peints dans
+  // l'illustration seabed-v1.webp : ne subsistent en CSS que la lumière et le
+  // crabe, les deux seules choses qui bougent.
+  assert.match(html, /class="seabed-caustics"/);
   assert.match(html, /class="seabed-crab"/);
-  assert.equal((html.match(/class="seagrass /g) ?? []).length, 3);
   assert.match(html, /aria-label="Lecture automatique de la journée"/);
   assert.match(html, /class="slider-stack"/);
   assert.match(html, /class="controls-footer"/);
@@ -70,7 +79,11 @@ test("server-renders the Marée experience", async () => {
   assert.equal((html.match(/class="event /g) ?? []).length, 4);
   assert.match(html, /Glisser · /);
   assert.match(html, /Afficher les prévisions des 7 prochains jours/);
-  assert.match(html, /Les marées à venir/);
+  // L'écran des prévisions portait deux titres pour une page — « PRÉVISIONS »
+  // puis « Les marées à venir ». Le second a été retiré ; ce que cette ligne
+  // vérifie, c'est que l'écran est rendu côté serveur avec un titre qui le
+  // nomme, donc elle contrôle celui qui reste.
+  assert.match(html, /id="forecast-section-title"/);
   assert.match(html, /<dialog[^>]*id="port-picker"/);
   assert.match(html, /<dialog[^>]*id="shom-tide-dialog"/);
   assert.match(html, /Choisir un port/);
@@ -141,10 +154,22 @@ test("keeps the mobile experience accessible and self-contained", async () => {
   assert.doesNotMatch(css, /boat|bateau/i);
   assert.doesNotMatch(css, /\.water\s*\{\s*--water-shift/);
   assert.match(css, /\.surface-screen:has\(\.water\.is-disturbed\) \.shoreline-track\s*\{[^}]*transition-duration:\s*460ms/s);
-  assert.match(css, /\.water::before\s*\{[^}]*--wave-front-x/s);
-  assert.match(css, /\.water-foam\s*\{[^}]*z-index:\s*5/s);
-  assert.match(css, /\.surface-screen\.phase-night \.coastal-birds\s*\{[^}]*visibility:\s*hidden/s);
-  assert.match(css, /@keyframes lighthouse-sweep/);
+  // L'animation de l'eau a été réduite à l'écume : les variables --wave-front-*
+  // et --wave-back-* ont disparu au profit de --foam-x/y/scale, que la boucle
+  // rAF de page.tsx pose sur .water et que .water-foam consomme.
+  assert.match(css, /\.water-foam\s*\{[^}]*var\(--foam-x/s);
+  assert.match(css, /\.water-foam\s*\{[^}]*z-index:\s*3/s);
+  // Les oiseaux ne sont plus éteints par une classe de phase mais fondus en
+  // continu sur --daylight, si bien qu'ils s'effacent au crépuscule au lieu de
+  // disparaître d'un coup à une heure précise.
+  assert.match(css, /\.sky-flock\s*\{[^}]*opacity:\s*calc\(var\(--daylight\)/s);
+  // Le balayage unique a été remplacé par deux animations distinctes, une par
+  // faisceau, plus l'éclat de la lanterne : c'est ce qui permet au phare de
+  // s'éteindre sur la moitié arrière du tour au lieu de balayer d'avant en
+  // arrière comme un essuie-glace.
+  assert.match(css, /@keyframes beam-left/);
+  assert.match(css, /@keyframes beam-right/);
+  assert.match(css, /@keyframes lamp-pulse/);
   assert.match(css, /@keyframes beachgoers-arrive/);
   assert.match(css, /@keyframes crab-scuttle/);
   assert.match(css, /\.underwater-light\s*\{[^}]*filter:\s*blur\(20px\)/s);
@@ -153,17 +178,36 @@ test("keeps the mobile experience accessible and self-contained", async () => {
   assert.match(css, /@keyframes live-pulse/);
   assert.match(css, /\.live-button/);
   assert.match(css, /\.event\s*\{[^}]*min-height:\s*44px/s);
-  assert.match(css, /\.event-copy strong\s*\{[^}]*font-size:\s*14\.5px/s);
+  // L'heure de marée est la même donnée sur les deux écrans et doit avoir une
+  // seule taille. Elle était en pixels avant la bascule vers Dynamic Type, et
+  // 14,5px d'un côté contre 14px de l'autre : pinnées ensemble plutôt qu'à un
+  // nombre, pour qu'elles puissent être retouchées mais plus diverger.
+  const tailleHeure = (selecteur) =>
+    css.match(new RegExp(`${selecteur}\\s*\\{[^}]*font-size:\\s*([\\d.]+)rem`, "s"))?.[1];
+  assert.ok(tailleHeure("\\.event-copy strong"), ".event-copy strong n'a pas de taille relative");
+  assert.equal(
+    tailleHeure("\\.event-copy strong"),
+    tailleHeure("\\.forecast-tide strong"),
+    "l'heure de marée est réglée à deux tailles différentes selon l'écran",
+  );
   assert.match(css, /\.controls-footer/);
   assert.match(css, /\.forecast-button::before\s*\{[^}]*width:\s*34px/s);
   assert.match(css, /@keyframes seabed-arrive/);
   assert.match(css, /touch-action:\s*pan-x pinch-zoom/);
   assert.match(css, /@keyframes underwater-content-in/);
   assert.match(css, /@keyframes port-row-in/);
-  assert.match(css, /\.surface-screen\.phase-night \.controls/);
+  assert.match(css, /\.surface-screen\.is-dark \.controls/);
   assert.match(css, /animation-play-state:\s*paused/);
   assert.match(css, /min-height:\s*44px/);
-  assert.match(css, /env\(safe-area-inset-top\)/);
+  // Les insets sont lus une seule fois dans :root vers --sa-*, puis consommés
+  // par var() partout ailleurs — c'est ce qui permet à un banc d'essai de leur
+  // substituer les valeurs d'un iPhone connu, ce qu'env() ne permet pas. Ce qui
+  // est gardé ici : qu'ils viennent bien d'env() en dernier ressort, sans quoi
+  // les variables deviendraient des nombres morts, et qu'ils soient consommés.
+  assert.match(css, /--sa-top:\s*env\(safe-area-inset-top/);
+  assert.match(css, /--sa-bottom:\s*env\(safe-area-inset-bottom/);
+  assert.match(css, /var\(--sa-top\)/);
+  assert.match(css, /var\(--sa-bottom\)/);
   assert.match(css, /overflow:\s*clip/);
   assert.match(css, /\.port-dialog::backdrop/);
   assert.match(layout, /viewportFit:\s*"cover"/);
