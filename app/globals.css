@@ -823,7 +823,17 @@ button {
 }
 
 .tide-mark-high {
-  color: #7c6a4c;
+  /* #7c6a4c mesurait 2,30:1 sur le haut du sable et 2,09:1 sur le bas — sous le
+     seuil du grand texte, alors que ces repères sont au maximum de visibilité
+     précisément à marée basse, quand ils reposent dessus. Le brun choisi était
+     trop proche de la teinte qu'il devait surmonter.
+
+     #433822 donne 5,07:1 et 4,61:1 sur les deux extrémités du dégradé. Le halo
+     clair reprend la solution déjà retenue pour le repère de basse mer, qui
+     tient 7,8:1 sur l'eau : il décolle le texte du grain de l'illustration sans
+     poser de bandeau opaque qui couperait le trait pointillé. */
+  color: #433822;
+  text-shadow: 0 1px 2px rgba(247, 241, 228, 0.55), 0 0 1px rgba(247, 241, 228, 0.7);
 }
 
 .tide-mark-low {

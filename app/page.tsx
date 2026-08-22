@@ -595,12 +595,35 @@ export default function Home() {
     };
   }, [currentDateKey, selectedPort.name, selectedPortId]);
 
+  // La lecture automatique est une animation comme les autres. La boucle de
+  // l'eau consulte `prefers-reduced-motion` et la réévalue en direct ; celle-ci
+  // l'ignorait et entraînait toute la scène — ciel, eau, oiseaux — malgré la
+  // préférence système. Elle s'aligne sur ce qui existait déjà dans le fichier.
   useEffect(() => {
     if (!isPlaying) return;
-    const timer = window.setInterval(() => {
-      setMinutes((current) => (current + 10) % 1440);
-    }, 140);
-    return () => window.clearInterval(timer);
+
+    const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let timer = 0;
+
+    const start = () => {
+      if (motionPreference.matches) return;
+      timer = window.setInterval(() => {
+        setMinutes((current) => (current + 10) % 1440);
+      }, 140);
+    };
+
+    const onPreferenceChange = () => {
+      window.clearInterval(timer);
+      timer = 0;
+      start();
+    };
+
+    start();
+    motionPreference.addEventListener("change", onPreferenceChange);
+    return () => {
+      window.clearInterval(timer);
+      motionPreference.removeEventListener("change", onPreferenceChange);
+    };
   }, [isPlaying]);
 
   useEffect(
@@ -1339,7 +1362,17 @@ export default function Home() {
                     max="1439"
                     step="1"
                     value={minutes}
-                    aria-valuetext={`${formatTime(minutes)}, ${dayCycle.label.toLowerCase()}, hauteur ${formatHeight(tide.height)} mètres, marée ${tide.rising ? "montante" : "descendante"}`}
+                    /* Pendant la lecture automatique, la valeur change environ
+                       sept fois par seconde. Le bouton play étant voisin, le
+                       focus reste naturellement sur le curseur et VoiceOver
+                       empilait alors des dizaines d'annonces par seconde,
+                       rendant l'écran inutilisable. Le libellé se fige pendant
+                       la lecture : le rendu visuel continue, l'annonce non. */
+                    aria-valuetext={
+                      isPlaying
+                        ? "Lecture de la journée en cours"
+                        : `${formatTime(minutes)}, ${dayCycle.label.toLowerCase()}, hauteur ${formatHeight(tide.height)} mètres, marée ${tide.rising ? "montante" : "descendante"}`
+                    }
                     onPointerDown={() => {
                       sliderStartMinutesRef.current = minutes;
                     }}
