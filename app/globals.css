@@ -2738,10 +2738,6 @@ button.source-badge--official {
   100% { opacity: 0.98; transform: none; }
 }
 
-@keyframes seagrass-sway {
-  0% { transform: rotate(-5deg) skew(-2deg); }
-  100% { transform: rotate(7deg) skew(3deg); }
-}
 
 .screen-stack.is-underwater .seabed {
   animation: seabed-arrive 640ms var(--spring-smooth) both;
@@ -4404,7 +4400,6 @@ a:focus-visible {
   .bubble,
   .underwater-light,
   .screen-stack.is-underwater .seabed,
-  .seagrass,
   .seabed-crab,
   .screen-stack.is-underwater .forecast-header,
   .screen-stack.is-underwater .underwater-intro,

@@ -33,7 +33,7 @@ cat > _deploy/maree/_routes.json <<'JSON'
   "include": ["/*"],
   "exclude": ["/assets/*", "/icons/*", "/sw.js", "/manifest.webmanifest",
               "/offline.html", "/offline",
-              "/apple-touch-icon-v2.png", "/og.png",
+              "/apple-touch-icon.png", "/og.png",
               "/file.svg", "/globe.svg", "/window.svg"]
 }
 JSON

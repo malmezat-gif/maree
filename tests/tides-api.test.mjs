@@ -13,7 +13,10 @@ test("reads the hosted secret from the Cloudflare runtime binding", async () => 
   );
 
   assert.match(routeSource, /await import\("cloudflare:workers"\)/);
-  assert.match(routeSource, /runtimeEnv\.API_MAREE_KEY/);
+  // La clé se lit sur le binding, quel que soit le nom de la variable
+  // intermédiaire — il y en avait une, avec un cast qui ne vérifiait rien, et
+  // elle a disparu quand `cloudflare:workers` a reçu de vrais types.
+  assert.match(routeSource, /env\.API_MAREE_KEY/);
   assert.doesNotMatch(routeSource, /process\.env\.API_MAREE_KEY/);
 });
 
