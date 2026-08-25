@@ -47,3 +47,6 @@ next-env.d.ts
 
 # secrets de dev Cloudflare (non couvert par .env*)
 .dev.vars
+
+# graphe de connaissances, regenere par /graphify (extraction du code gratuite)
+/graphify-out/
