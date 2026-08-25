@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
+import { readFileSync } from "node:fs";
 import { predictCoefficients, predictExtrema, predictLevels } from "../lib/harmonic-tides.ts";
 
 /**
@@ -229,6 +230,42 @@ describe("justesse des horaires de marée", () => {
           `${releve.port} ${releve.date} (${releve.regime}) : marée ${index + 1} à ${ecartHauteur.toFixed(0)} cm de l'annuaire — au-delà des 20 cm tolérés`,
         );
       });
+    }
+  });
+
+  test("les constantes harmoniques restent cohérentes avec les datums", () => {
+    // MHWS − MSL doit valoir M2 + S2 : la pleine mer moyenne de vive-eau est,
+    // par définition, le niveau moyen plus les deux composantes lunaire et
+    // solaire en phase. C'est le contrôle qui valide une extraction de
+    // constantes — un décalage de phase, une amplitude en mauvaise unité ou une
+    // station mal appariée le font sauter immédiatement.
+    //
+    // Il a été pris à tort pour circulaire lors de l'audit du 21 août, sur un
+    // affichage arrondi à trois décimales qui montrait ±0,000 partout. À la
+    // précision réelle les écarts vont de 1,0e-4 à 4,8e-4 m — soit le dixième
+    // de millimètre près, ce qui est l'arrondi des datums stockés, pas une
+    // identité. Les deux grandeurs sont bien indépendantes, et le contrôle
+    // valide bien quelque chose.
+    //
+    // La tolérance de 1 mm est deux fois l'écart le plus grand observé : assez
+    // lâche pour l'arrondi, assez serrée pour attraper une erreur d'extraction.
+    const stations = JSON.parse(
+      readFileSync(new URL("../lib/harmonics/stations.json", import.meta.url), "utf8"),
+    );
+
+    for (const [nom, station] of Object.entries(stations)) {
+      const amplitude = (composante) =>
+        station.constituents?.find((c) => (c.name ?? c.constituent) === composante)?.amplitude ?? 0;
+
+      const marnageDeclare = station.mhwsAboveChartDatum - station.mslAboveChartDatum;
+      const marnageHarmonique = amplitude("M2") + amplitude("S2");
+
+      assert.ok(marnageHarmonique > 0, `${nom} : M2 et S2 absentes ou nulles`);
+      assert.ok(
+        Math.abs(marnageDeclare - marnageHarmonique) < 0.001,
+        `${nom} : MHWS−MSL = ${marnageDeclare.toFixed(4)} m mais M2+S2 = ${marnageHarmonique.toFixed(4)} m — ` +
+          `écart de ${((marnageDeclare - marnageHarmonique) * 1000).toFixed(2)} mm, au-delà du millimètre toléré`,
+      );
     }
   });
 });
