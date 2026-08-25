@@ -54,7 +54,8 @@
  *   - `-webkit-tap-highlight-color: transparent`, sans quoi iOS repeint en bleu
  *     chaque zone tapée ;
  *   - les titres, `small`, les contrôles de formulaire et le lien, dont
- *     l'apparence par défaut du navigateur reprenait la main.
+ *     l'apparence par défaut du navigateur reprenait la main. Le lien est le
+ *     seul point où l'on s'écarte volontairement de preflight : voir plus bas.
  *
  * Le reste était dérivé (des hauteurs qui suivent l'interligne) ou inerte : le
  * fameux `border-style: none -> solid` de preflight n'a produit aucune
@@ -109,10 +110,26 @@ menu {
   list-style: none;
 }
 
+/*
+ * Seul écart assumé au reset repris de preflight, qui lui posait
+ * `text-decoration: inherit` et laissait donc les liens nus.
+ *
+ * La couleur est héritée — c'est voulu, les liens de cette app vivent dans du
+ * texte secondaire et une couleur d'accent y jurerait. Mais sans couleur
+ * distincte NI soulignement, plus rien ne signale que c'est un lien : le repérer
+ * demanderait de distinguer un gras, ce qui exclut au passage quiconque lit en
+ * niveaux de gris. Le soulignement redevient donc le porteur de l'information.
+ *
+ * `from-font` prend l'épaisseur et la position que la fonte prévoit plutôt
+ * qu'un trait arbitraire, et le décalage évite qu'il ne barre les jambages des
+ * p, g et q.
+ */
 a {
   color: inherit;
-  -webkit-text-decoration: inherit;
-  text-decoration: inherit;
+  -webkit-text-decoration-line: underline;
+  text-decoration-line: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.18em;
 }
 
 img,

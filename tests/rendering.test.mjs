@@ -193,6 +193,111 @@ describe("rendu mesuré", { skip: CHROME ? false : "aucun Chrome" }, () => {
     }
   });
 
+  test("le lien de source est souligné, et le trait est vraiment tracé", async () => {
+    // La couleur des liens est héritée — voulu : ils vivent dans du texte
+    // secondaire, une couleur d'accent y jurerait. Le soulignement porte donc à
+    // lui seul l'information « ceci est un lien ». Sans lui il ne resterait
+    // qu'un gras à distinguer, ce qui exclut quiconque lit en niveaux de gris.
+    //
+    // `preflight` posait `text-decoration: inherit` et laissait ces liens nus ;
+    // c'est le seul point où le reset repris dans globals.css s'en écarte
+    // volontairement. Une réécriture du reset le reperdrait sans rien casser
+    // d'autre, d'où ce test.
+    const page = await ouvrir({ largeur: 430, hauteur: 932, insetHaut: 59, insetBas: 34, natif: false });
+    try {
+      // Le lien vit dans la feuille modale du SHOM : sans l'ouvrir on mesure un
+      // élément non mis en page, dont la boîte vaut 0×0.
+      const ouvertPar = await page.evaluate(() => {
+        const bouton = [...document.querySelectorAll("button")].find((b) =>
+          b.getAttribute("aria-controls") === "shom-tide-dialog",
+        );
+        if (!bouton) return null;
+        bouton.click();
+        return bouton.textContent.trim().slice(0, 40);
+      });
+      assert.ok(ouvertPar, "aucun bouton n'ouvre la feuille du widget SHOM");
+      await page.evaluate(() => new Promise((r) => setTimeout(r, 1200)));
+
+      const lien = await page.evaluate(() => {
+        const a = document.querySelector(".shom-dialog-body a");
+        if (!a) return null;
+        const cs = getComputedStyle(a);
+        const r = a.getBoundingClientRect();
+        return {
+          ligne: cs.textDecorationLine,
+          boite: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+        };
+      });
+      assert.ok(lien, "le lien de source n'est pas rendu");
+      assert.match(lien.ligne, /underline/, "le lien de source n'est plus souligné");
+      assert.ok(lien.boite.w > 0 && lien.boite.h > 0, "le lien n'est pas mis en page");
+
+      // `text-decoration-line: underline` peut être annoncé et rester invisible :
+      // trait transparent, recouvert, ou repoussé hors de la boîte. On cherche
+      // donc la ligne de pixels réellement assombrie SOUS les lettres, en la
+      // comparant à la même ligne dans le texte voisin, qui n'est pas un lien.
+      const { x, y, w, h } = lien.boite;
+      const dedans = [];
+      const temoin = [];
+      for (let dy = 0; dy <= h + 4; dy++) {
+        for (const part of [0.2, 0.4, 0.6, 0.8]) dedans.push({ x: Math.round(x + w * part), y: y + dy });
+        for (const dx of [-40, -30, -20]) temoin.push({ x: x + dx, y: y + dy });
+      }
+      const lus = await page.samplePixels([...dedans, ...temoin]);
+      const luminance = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+      const moyenne = (t) => t.reduce((a, b) => a + b, 0) / t.length;
+
+      const dansLeLien = [];
+      const aCote = [];
+      for (let dy = 0; dy <= h + 4; dy++) {
+        dansLeLien.push(moyenne(lus.slice(dy * 4, dy * 4 + 4).map(luminance)));
+        aCote.push(moyenne(lus.slice(dedans.length + dy * 3, dedans.length + dy * 3 + 3).map(luminance)));
+      }
+
+      // Chercher « une ligne sombre » ne suffit pas : les capitales de SHOM
+      // montent plus haut que les minuscules voisines, si bien que le haut des
+      // lettres passe ce test-là. Vérifié en rendant le trait transparent —
+      // l'assertion naïve restait verte, donc elle ne mesurait pas le trait.
+      //
+      // Le soulignement se distingue par sa POSITION : les lettres forment un
+      // bloc sombre continu, puis viennent une ou deux lignes de fond, puis le
+      // trait. On cherche donc un second groupe de lignes sombres, détaché du
+      // premier. Sans trait, il n'y a qu'un groupe.
+      const fond = Math.max(...dansLeLien);
+      const groupes = [];
+      dansLeLien.forEach((l, dy) => {
+        if (l >= fond - 60) return;
+        const dernier = groupes.at(-1);
+        if (dernier && dernier.fin === dy - 1) dernier.fin = dy;
+        else groupes.push({ debut: dy, fin: dy });
+      });
+
+      assert.ok(
+        groupes.length >= 2,
+        `une seule zone sombre sous le lien (lignes ${groupes[0]?.debut}-${groupes[0]?.fin}) : ` +
+          "ce sont les lettres, le soulignement n'est pas tracé",
+      );
+      const trait = groupes.at(-1);
+      const lettres = groupes[0];
+      assert.ok(
+        trait.debut > lettres.fin + 1,
+        "la zone sombre du bas touche les lettres : ce n'est pas un trait détaché",
+      );
+      assert.ok(
+        trait.fin - trait.debut <= 3,
+        `la zone sombre du bas fait ${trait.fin - trait.debut + 1} lignes : trop épaisse pour un soulignement`,
+      );
+      // Et il appartient bien au lien : à la même hauteur, le texte voisin —
+      // même phrase, même ligne, mais pas un lien — est resté au fond clair.
+      assert.ok(
+        aCote[trait.debut] > 200,
+        "le texte voisin est sombre à la même hauteur : la ligne trouvée n'est pas le soulignement du lien",
+      );
+    } finally {
+      await page.close();
+    }
+  });
+
   test("la hiérarchie typographique tient ses rangs", async () => {
     // Les tailles relevées au 21 août, dans l'ordre. Ce test ne fige pas les
     // pixels — le rééquilibrage prévu les changera — mais l'ORDRE : la hauteur
