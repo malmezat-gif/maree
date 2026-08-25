@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -17,8 +18,28 @@ export async function startPreviewServer() {
   // un dossier dont le nom contient des espaces : sans fileURLToPath, le spawn
   // échoue sur un répertoire qui n'existe pas.
   const racine = fileURLToPath(new URL("../..", import.meta.url));
+
+  // Sans ce contrôle, la boucle d'attente plus bas prend « quelque chose répond
+  // sur 4319 » pour « mon serveur est prêt ». Un orphelin d'une exécution
+  // précédente sert alors un `dist/` écrasé depuis : la page arrive sans CSS et
+  // les mesures portent sur un rendu qui n'existe plus. Ça s'est produit, et le
+  // symptôme — des contrastes et des insets absurdes — ne désigne pas sa cause.
+  if (!(await portLibre(PORT))) {
+    throw new Error(
+      `le port ${PORT} est déjà occupé.\n` +
+        "Un serveur d'un lancement précédent y répond sans doute encore. Les\n" +
+        "mesures porteraient sur SON build, pas sur celui qu'on vient de faire.\n" +
+        `Pour le retrouver : lsof -nP -iTCP:${PORT} -sTCP:LISTEN`,
+    );
+  }
+
+  // `detached` place le fils dans son propre groupe de processus. `npx` n'est
+  // qu'une enveloppe : lui envoyer SIGTERM laisse le vrai serveur vivant, et
+  // c'est ainsi que naissent les orphelins que le contrôle ci-dessus attrape.
+  // On tue le groupe entier.
   const child = spawn("npx vinext start", {
     shell: true,
+    detached: true,
     cwd: racine,
     env: { ...process.env, PORT: String(PORT), WRANGLER_LOG_PATH: ".wrangler/wrangler.log" },
     stdio: ["ignore", "pipe", "pipe"],
@@ -40,11 +61,7 @@ export async function startPreviewServer() {
         return {
           origin: ORIGIN,
           async close() {
-            child.kill("SIGTERM");
-            await new Promise((resolve) => {
-              child.once("exit", resolve);
-              setTimeout(() => { child.kill("SIGKILL"); resolve(); }, 3000);
-            });
+            await tuerLeGroupe(child);
           },
         };
       }
@@ -54,6 +71,32 @@ export async function startPreviewServer() {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
-  child.kill("SIGKILL");
+  await tuerLeGroupe(child);
   throw new Error(`le serveur n'a pas répondu en ${DEMARRAGE_MAX_MS} ms\n${journal}`);
+}
+
+/** Vrai si personne n'écoute déjà sur ce port. */
+function portLibre(port) {
+  return new Promise((resolve) => {
+    const sonde = createServer();
+    sonde.once("error", () => resolve(false));
+    sonde.once("listening", () => sonde.close(() => resolve(true)));
+    sonde.listen(port, "127.0.0.1");
+  });
+}
+
+/** Termine le serveur ET ses descendants, puis attend que le port soit rendu. */
+async function tuerLeGroupe(child) {
+  const groupe = -child.pid;
+  try { process.kill(groupe, "SIGTERM"); } catch { /* déjà mort */ }
+  for (let i = 0; i < 40; i++) {
+    if (await portLibre(PORT)) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  try { process.kill(groupe, "SIGKILL"); } catch { /* déjà mort */ }
+  for (let i = 0; i < 20; i++) {
+    if (await portLibre(PORT)) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`le port ${PORT} n'a pas été rendu après SIGKILL`);
 }
