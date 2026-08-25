@@ -409,6 +409,36 @@ function getTideAt(minutes: number, tidePoints: TidePoint[]) {
   };
 }
 
+/**
+ * Un seul composant, et c'est un choix mesuré.
+ *
+ * Ce fichier fait ~1770 lignes et le graphe de connaissances du dépôt donne à
+ * `Home` 40 arêtes — de loin le nœud le plus connecté. L'audit du 21 août en a
+ * conclu qu'il fallait extraire `SurfaceScreen`, `ForecastScreen` et
+ * `PortPicker` en composants mémoïsés, au motif que tout l'arbre se re-rend à
+ * chaque tick de 140 ms, écran caché compris, avec sept `Intl.DateTimeFormat`
+ * reconstruits pour du contenu invisible.
+ *
+ * Mesuré avant de le faire, dans un Chrome headless non bridé, à 430x932, en
+ * poussant 100 mises à jour de l'horloge — exactement ce que fait la lecture
+ * automatique :
+ *
+ *   100 ticks en 755 ms          →  7,55 ms par tick
+ *   mutations DOM sur la surface :  1222  (12,2 par tick)
+ *   mutations sur l'écran caché  :  0
+ *
+ * L'écran des prévisions ne reçoit aucune écriture, et 7,55 ms tiennent dans
+ * 5,4 % du budget de 140 ms. La réconciliation React de l'arbre caché est bien
+ * réelle, mais elle est déjà comprise dans ces 7,55 ms. Découper coûterait un
+ * remaniement large, casserait un paquet d'assertions textuelles, et achèterait
+ * une marge dont personne n'a besoin.
+ *
+ * Ce qui rouvrirait la question : un coût par tick qui approcherait le budget,
+ * ou des écritures DOM apparaissant sur l'écran caché. La mesure a été faite sur
+ * une machine de bureau — un téléphone d'entrée de gamme sera plusieurs fois
+ * plus lent, ce qui laisse encore de la marge, mais pas la même. Remesurer avant
+ * de conclure, avec le même protocole.
+ */
 export default function Home() {
   const [minutes, setMinutes] = useState(12 * 60);
   const [currentDate, setCurrentDate] = useState(
