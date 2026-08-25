@@ -159,4 +159,76 @@ describe("justesse des horaires de marée", () => {
       }
     }
   });
+
+  test("l'écart aux annuaires officiels reste dans les bornes mesurées", () => {
+    // Relevés contre maree.info, qui republie les prédictions SHOM. Ce test ne
+    // prétend pas que l'app est exacte — elle ne l'est pas, et ne peut pas
+    // l'être : prédiction astronomique seule, sans surcote météo, sur des
+    // constantes TICON-4 qui ne sont pas les tables officielles. Il fige ce que
+    // vaut réellement l'écart, pour qu'une modification qui le dégrade se voie.
+    //
+    // Ce que ces relevés ont établi, le 22 août 2026 :
+    //   · le timing est bon — 3 minutes sur les ports à faible marnage, 6 à
+    //     Saint-Malo, et jusqu'à 9 minutes en morte-eau où un extremum plat se
+    //     date mal ;
+    //   · les hauteurs portent un biais POSITIF d'environ +7,5 cm à
+    //     Saint-Jean-de-Luz et à Brest, stable de la morte-eau à la vive-eau,
+    //     mais ABSENT à Saint-Malo (−1,8 cm de moyenne).
+    //
+    // Il n'est donc pas proportionnel au marnage, ce qui écarte une erreur
+    // d'amplitude et oriente vers un écart de datum propre à certaines
+    // stations. Trois ports sur un ou deux jours ne suffisent pas à corriger un
+    // datum : le biais est consigné, pas compensé.
+    const RELEVES = [
+      {
+        port: "saint-jean-de-luz", date: "2026-08-28", regime: "vive-eau",
+        attendu: [["PM", 329, 4.01], ["BM", 689, 0.85], ["PM", 1059, 4.32], ["BM", 1431, 0.69]],
+      },
+      {
+        port: "saint-jean-de-luz", date: "2026-08-22", regime: "morte-eau",
+        attendu: [["PM", 29, 3.01], ["BM", 398, 1.98], ["PM", 794, 3.17], ["BM", 1172, 1.89]],
+      },
+      {
+        port: "brest", date: "2026-08-28", regime: "vive-eau",
+        attendu: [["BM", 3, 1.50], ["PM", 361, 6.56], ["BM", 737, 1.53], ["PM", 1097, 6.92]],
+      },
+      {
+        port: "saint-malo", date: "2026-08-28", regime: "vive-eau",
+        attendu: [["BM", 166, 2.21], ["PM", 496, 11.40], ["BM", 904, 2.24], ["PM", 1231, 11.91]],
+      },
+    ];
+
+    for (const releve of RELEVES) {
+      const obtenus = predictExtrema(releve.port, releve.date)
+        .filter((e) => e.minutes >= 0 && e.minutes < 1440);
+
+      assert.equal(
+        obtenus.length,
+        releve.attendu.length,
+        `${releve.port} ${releve.date} : ${obtenus.length} extrema contre ${releve.attendu.length} à l'annuaire`,
+      );
+
+      releve.attendu.forEach(([type, minutes, hauteur], index) => {
+        const obtenu = obtenus[index];
+        const attenduPleine = type === "PM";
+        assert.equal(
+          obtenu.kind === "Pleine mer",
+          attenduPleine,
+          `${releve.port} ${releve.date} : marée ${index + 1} de mauvais type`,
+        );
+
+        const ecartTemps = Math.abs(obtenu.minutes - minutes);
+        assert.ok(
+          ecartTemps <= 12,
+          `${releve.port} ${releve.date} (${releve.regime}) : marée ${index + 1} à ${ecartTemps} min de l'annuaire — au-delà des 12 min tolérées`,
+        );
+
+        const ecartHauteur = Math.abs(obtenu.heightM - hauteur) * 100;
+        assert.ok(
+          ecartHauteur <= 20,
+          `${releve.port} ${releve.date} (${releve.regime}) : marée ${index + 1} à ${ecartHauteur.toFixed(0)} cm de l'annuaire — au-delà des 20 cm tolérés`,
+        );
+      });
+    }
+  });
 });
