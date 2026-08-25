@@ -231,7 +231,17 @@ test("ships an installable mobile app shell", async () => {
   assert.equal(manifest.scope, "/");
   assert.ok(manifest.icons.some((entry) => entry.sizes === "512x512"));
   assert.ok(manifest.icons.some((entry) => entry.purpose === "maskable"));
-  assert.match(serviceWorker, /maree-shell-v2/);
+  // Épingler le littéral « maree-shell-v2 » ne disait rien d'utile et tombait à
+  // chaque incrément légitime. Ce qui compte est double : que les caches soient
+  // versionnés, et qu'un changement de version évince réellement les anciens —
+  // sans quoi le numéro ne serait qu'une décoration et les caches périmés
+  // resteraient sur l'appareil.
+  assert.match(serviceWorker, /const SHELL_CACHE = "maree-shell-v\d+"/);
+  assert.match(serviceWorker, /const ASSET_CACHE = "maree-assets-v\d+"/);
+  assert.match(serviceWorker, /key\.startsWith\(CACHE_PREFIX\)/);
+  assert.match(serviceWorker, /key !== SHELL_CACHE/);
+  assert.match(serviceWorker, /key !== ASSET_CACHE/);
+  assert.match(serviceWorker, /caches\.delete\(key\)/);
   assert.match(serviceWorker, /const SHELL_FILES = \["\/offline\.html"\]/);
   assert.doesNotMatch(serviceWorker, /cache\.put\("\/"/);
   assert.match(serviceWorker, /request\.mode === "navigate"/);

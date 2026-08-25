@@ -60,6 +60,32 @@ async function ouvrir({ largeur, hauteur, insetHaut = 0, insetBas = 0, natif = t
   return page;
 }
 
+/**
+ * Ouvre l'app et attend que le service worker contrôle réellement la page.
+ *
+ * Une seule visite ne suffit pas : le worker s'installe pendant qu'on est déjà
+ * servi, et `clients.claim()` n'agit qu'ensuite. Sans cette attente, on mesure
+ * une page hors de son contrôle et le test dit « le hors-ligne ne marche pas »
+ * alors qu'il n'a jamais été mis en jeu.
+ */
+async function ouvrirSousWorker({ largeur = 430, hauteur = 932 } = {}) {
+  const page = await navigateur.newPage(largeur, hauteur);
+  await page.goto(serveur.origin);
+  for (let essai = 0; essai < 30; essai++) {
+    const pret = await page.evaluate(async () => {
+      const enregistrement = await navigator.serviceWorker.getRegistration();
+      return enregistrement?.active?.state === "activated" && navigator.serviceWorker.controller !== null;
+    });
+    if (pret) return page;
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 300)));
+    // Le contrôle s'établit au chargement suivant quand la page a été servie
+    // avant l'activation.
+    if (essai === 9 || essai === 19) await page.goto(serveur.origin);
+  }
+  await page.close();
+  throw new Error("le service worker n'a jamais pris le contrôle de la page");
+}
+
 /** Déplace l'horloge de l'app et laisse les transitions finir. */
 async function reglerHeure(page, minutes) {
   await page.evaluate((valeur) => {
@@ -72,7 +98,12 @@ async function reglerHeure(page, minutes) {
   await page.evaluate(() => new Promise((r) => setTimeout(r, 900)));
 }
 
-describe("rendu mesuré", { skip: CHROME ? false : "aucun Chrome" }, () => {
+// `concurrency: 1` n'est pas une précaution de style. Ces tests partagent un
+// serveur, un navigateur et un profil : l'un arrête le serveur pour couper le
+// réseau, l'autre vide les caches et réinstalle le service worker. Lancés
+// ensemble — ce que node:test fait par défaut dans une suite — ils se
+// détruisent mutuellement, et l'échec accuse le code au lieu du parallélisme.
+describe("rendu mesuré", { skip: CHROME ? false : "aucun Chrome", concurrency: 1 }, () => {
   test("les repères de marée restent lisibles sur le sable", async () => {
     // Le seuil vient de l'audit du 21 août : .tide-mark-high mesurait 2,30:1 sur
     // le haut du sable et 2,09:1 sur le bas, contre 4,5 exigé. Après correction
@@ -188,6 +219,189 @@ describe("rendu mesuré", { skip: CHROME ? false : "aucun Chrome" }, () => {
 
       const sombre = await etatScene(page, 21 * 60);
       assert.equal(sombre.sombre, true, "21:00 : l'interface doit être en thème sombre");
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("l'installation seule suffit à remplir le cache", async () => {
+    // Le remplissage à l'usage arrive trop tard : lors de la première visite le
+    // worker n'est pas encore aux commandes et ne voit passer ni le document ni
+    // ses fichiers. Sans préchargement, le hors-ligne ne marcherait qu'à partir
+    // de la deuxième ouverture — donc pas pour qui installe l'app chez lui et
+    // l'ouvre à la plage.
+    //
+    // L'isolement se fait par un NAVIGATEUR NEUF, et il le faut. Désinscrire le
+    // worker depuis la page ne suffit pas : tant que celle-ci reste sous son
+    // contrôle, la désinscription n'est que différée, `register()` rend la même
+    // inscription déjà active, aucune installation ne se rejoue — et le test
+    // mesure alors des caches qu'il vient lui-même de vider.
+    //
+    // Chaque `launchBrowser()` ouvre un profil temporaire : ni worker ni cache.
+    // Une seule visite, non interceptée puisque le worker n'est pas encore aux
+    // commandes, puis on regarde. Ce qui s'y trouve vient du préchargement.
+    const navigateurNeuf = await launchBrowser();
+    try {
+      const page = await navigateurNeuf.newPage(430, 932);
+      await page.goto(serveur.origin);
+
+      const contenu = await page.evaluate(async () => {
+        const enregistrement = await navigator.serviceWorker.getRegistration();
+        if (!enregistrement) return null;
+        for (let essai = 0; essai < 60; essai++) {
+          if (enregistrement.active?.state === "activated") break;
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        if (enregistrement.active?.state !== "activated") return null;
+
+        const assets = await caches.open("maree-assets-v3");
+        const coquille = await caches.open("maree-shell-v3");
+        return {
+          assets: (await assets.keys()).map((r) => new URL(r.url).pathname),
+          coquille: (await coquille.keys()).map((r) => new URL(r.url).pathname),
+        };
+      });
+
+      assert.ok(contenu, "le service worker n'a jamais atteint l'état activé sur un profil neuf");
+      assert.ok(
+        contenu.coquille.includes("/"),
+        `la coquille de l'app n'est pas préchargée : ${JSON.stringify(contenu.coquille)}`,
+      );
+      assert.ok(
+        contenu.assets.some((chemin) => chemin.endsWith(".css")),
+        "aucune feuille de style préchargée",
+      );
+      const scripts = contenu.assets.filter((chemin) => chemin.endsWith(".js"));
+      assert.ok(scripts.length >= 5, `seulement ${scripts.length} script(s) préchargé(s)`);
+      // Celle-ci est le vrai enjeu : `seabed-v1.webp` n'est cité NULLE PART dans
+      // le HTML, seulement dans la feuille de style. Sa présence prouve que le
+      // préchargement dépouille aussi le CSS ; sans cela le fond marin
+      // manquerait hors ligne pendant que tout le reste s'afficherait.
+      assert.ok(
+        contenu.assets.some((chemin) => chemin.includes("seabed-v1")),
+        "le fond marin, cité seulement par la feuille de style, n'est pas préchargé : " +
+          JSON.stringify(contenu.assets),
+      );
+    } finally {
+      await navigateurNeuf.close();
+    }
+  });
+
+  test("hors ligne, l'app se sert elle-même et calcule ses marées", async () => {
+    // Le cœur du sujet : les 50 composantes harmoniques des huit ports sont
+    // embarquées, donc le réseau n'est nécessaire à rien d'essentiel. La
+    // version précédente du worker servait pourtant `offline.html` à la moindre
+    // coupure — une page « hors connexion » sur un appareil qui tenait tout le
+    // nécessaire, et précisément sur la côte, là où le réseau manque.
+    //
+    // La coupure se fait en ARRÊTANT LE SERVEUR, et c'est le seul moyen. Couper
+    // le réseau de la page avec `Network.emulateNetworkConditions` ne suffit
+    // pas : le service worker vit dans un autre contexte et ses propres `fetch`
+    // continuent d'aboutir. Mesuré — avec le repli sur la coquille retiré, la
+    // page « coupée » affichait encore l'application complète, donc un test
+    // fondé là-dessus aurait été vert quoi qu'il arrive.
+    const page = await ouvrirSousWorker();
+    const origine = serveur.origin;
+    try {
+      // Marque du document courant : s'il survit à la navigation, aucun nouveau
+      // document n'a été chargé et on mesurerait l'ancienne page.
+      await page.evaluate(() => {
+        window.__avantCoupure = true;
+      });
+
+      await serveur.close();
+      serveur = null;
+
+      await page.goto(origine);
+      await page.evaluate(() => new Promise((r) => setTimeout(r, 2500)));
+
+      const vu = await page.evaluate(() => ({
+        documentRecharge: window.__avantCoupure === undefined,
+        titre: document.title,
+        evenements: [...document.querySelectorAll(".tide-events .event")].map((e) =>
+          e.textContent.replace(/\s+/g, " ").trim(),
+        ),
+        hauteur: document.querySelector(".height-value")?.textContent.trim() ?? null,
+        note: document.querySelector(".source-note")?.textContent.replace(/\s+/g, " ").trim() ?? null,
+      }));
+
+      assert.ok(
+        vu.documentRecharge,
+        "la navigation hors ligne n'a chargé aucun document : on mesure la page d'avant la coupure",
+      );
+      assert.ok(
+        !/hors connexion/i.test(vu.titre),
+        `hors ligne, c'est la page de repli qui est servie (titre : « ${vu.titre} ») ` +
+          "alors que l'app peut calculer ses marées sans réseau",
+      );
+      assert.ok(
+        vu.evenements.length >= 2,
+        `hors ligne, ${vu.evenements.length} marée(s) affichée(s) : le calcul embarqué n'a pas pris le relais`,
+      );
+      // Des horaires, pas des cases vides : une heure et une hauteur par marée.
+      for (const evenement of vu.evenements) {
+        assert.match(evenement, /\d{2}:\d{2}/, `marée sans horaire hors ligne : « ${evenement} »`);
+        assert.match(evenement, /\d+,\d+\s*m/, `marée sans hauteur hors ligne : « ${evenement} »`);
+      }
+      assert.match(vu.hauteur ?? "", /\d/, "aucune hauteur d'eau affichée hors ligne");
+      // Et l'app doit le DIRE : hors ligne les valeurs sont calculées, pas
+      // officielles. Annoncer « estimé » ou rester muet tromperait sur la source.
+      assert.match(
+        vu.note ?? "",
+        /calcul/i,
+        `hors ligne, la mention de source dit « ${vu.note} » au lieu d'annoncer un calcul embarqué`,
+      );
+
+    } finally {
+      await page.close();
+      if (!serveur) serveur = await startPreviewServer();
+    }
+  });
+
+  test("un fichier remplacé par un nouveau build quitte le cache, un nom stable y reste", async () => {
+    // Le cache d'assets ne se purgeait jamais : chaque déploiement y ajoutait un
+    // jeu complet de fichiers sans en retirer aucun, sur le téléphone de
+    // quelqu'un, indéfiniment. La purge se fait au nom débarrassé de son
+    // empreinte de build — et doit épargner les noms stables, qui n'ont pas de
+    // successeur à qui céder la place.
+    const page = await ouvrirSousWorker();
+    try {
+      const seme = await page.evaluate(async () => {
+        const cache = await caches.open("maree-assets-v3");
+        const presents = (await cache.keys()).map((r) => new URL(r.url).pathname);
+        const cssActuelle = presents.find((chemin) => chemin.endsWith(".css"));
+        if (!cssActuelle) return null;
+        // Ce qu'un build précédent aurait laissé : même nom, autre empreinte.
+        const perimee = cssActuelle.replace(/-[A-Za-z0-9_-]{8,}\.css$/, "-ZZZZZZZZ.css");
+        await cache.put(perimee, new Response("/* vieux build */", { headers: { "Content-Type": "text/css" } }));
+        return { cssActuelle, perimee };
+      });
+      assert.ok(seme, "aucune feuille de style dans le cache d'assets : rien à purger");
+      assert.notEqual(seme.perimee, seme.cssActuelle, "le nom périmé fabriqué n'est pas distinct de l'actuel");
+
+      // C'est une navigation en ligne qui déclenche la réconciliation.
+      await page.goto(serveur.origin);
+      await page.evaluate(() => new Promise((r) => setTimeout(r, 2500)));
+
+      const restant = await page.evaluate(async () => {
+        const cache = await caches.open("maree-assets-v3");
+        return (await cache.keys()).map((r) => new URL(r.url).pathname);
+      });
+
+      assert.ok(
+        !restant.includes(seme.perimee),
+        `le fichier remplacé ${seme.perimee} est resté en cache : rien ne borne sa croissance`,
+      );
+      assert.ok(
+        restant.includes(seme.cssActuelle),
+        `la feuille de style en service ${seme.cssActuelle} a été purgée : le hors-ligne est cassé`,
+      );
+      for (const stable of ["coast-v3", "seabed-v1"]) {
+        assert.ok(
+          restant.some((chemin) => chemin.includes(stable)),
+          `${stable} a été purgé alors que son nom est stable et sans successeur`,
+        );
+      }
     } finally {
       await page.close();
     }
